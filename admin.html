@@ -44,6 +44,7 @@
         <button class="sidebar-link" data-admin-panel="learners">🧑‍🎓 Learners</button>
         <button class="sidebar-link" data-admin-panel="levels">🗺️ Levels</button>
         <button class="sidebar-link" data-admin-panel="activities">🧩 Activities</button>
+        <button class="sidebar-link" data-admin-panel="lessons">📘 Lessons</button>
         <button class="sidebar-link" data-admin-panel="placement">📍 Placement quiz</button>
         <button class="sidebar-link" data-admin-panel="media">🗂️ Media Library</button>
       </nav>
@@ -104,6 +105,18 @@
           </div>
         </div>
         <div id="activitiesListHost"></div>
+      </section>
+
+      <!-- Lessons -->
+      <section id="adminPanelLessons" hidden>
+        <div class="dash-header">
+          <div><p class="eyebrow">Lessons</p><h2 style="margin:0;">Build real lesson plans</h2></div>
+          <button class="btn btn-primary" id="newLessonBtn">+ New lesson</button>
+        </div>
+        <div class="lesson-filter-row">
+          <input type="text" class="media-search-input" id="adminLessonSearchInput" placeholder="Search lessons…" style="flex:1; min-width:180px;">
+        </div>
+        <div id="lessonsListHost"></div>
       </section>
 
       <!-- Placement quiz -->

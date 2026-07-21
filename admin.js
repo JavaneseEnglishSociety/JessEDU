@@ -97,7 +97,7 @@ auth.onAuthStateChanged((user) => {
 /* ---------------------------------------------------------
    2. Sidebar panel switching
    --------------------------------------------------------- */
-const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "placement", "media"];
+const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "lessons", "placement", "media"];
 document.querySelectorAll("[data-admin-panel]").forEach(el => {
   el.addEventListener("click", () => {
     const panel = el.getAttribute("data-admin-panel");
@@ -108,6 +108,7 @@ document.querySelectorAll("[data-admin-panel]").forEach(el => {
     if (panel === "learners") loadLearners();
     if (panel === "levels") loadLevelsPanel();
     if (panel === "activities") loadActivitiesPanel();
+    if (panel === "lessons") loadLessonsPanel();
     if (panel === "placement") loadPlacementPanel();
     if (panel === "media") loadMediaPanel();
   });
@@ -759,6 +760,320 @@ function openActivityEditor(activity, forceType) {
         setBtnLoading(btn, false, "Save activity");
       }
     });
+  });
+}
+
+/* ---------------------------------------------------------
+   7b. Lessons CRUD — block-based lesson editor
+   --------------------------------------------------------- */
+const LESSON_CATEGORIES = ["Grammar", "Vocabulary", "Speaking", "Writing", "Reading", "Listening", "IELTS", "TOEFL", "MUN", "Business English"];
+const LESSON_DIFFICULTIES = ["Beginner", "Elementary", "Intermediate", "Advanced", "Expert"];
+const BLOCK_TYPE_LABELS = {
+  heading: "Heading", richtext: "Rich Text", divider: "Divider", image: "Image",
+  youtube: "YouTube", slides: "Slides / Canva", tip: "Tip Box", warning: "Warning Box",
+  accordion: "Accordion", quiz: "Quiz",
+};
+
+function defaultBlock(type) {
+  switch (type) {
+    case "heading": return { type: "heading", text: "", level: "h2" };
+    case "richtext": return { type: "richtext", html: "<p></p>" };
+    case "divider": return { type: "divider" };
+    case "image": return { type: "image", url: "", caption: "" };
+    case "youtube": return { type: "youtube", url: "" };
+    case "slides": return { type: "slides", url: "" };
+    case "tip": return { type: "tip", html: "<p></p>" };
+    case "warning": return { type: "warning", html: "<p></p>" };
+    case "accordion": return { type: "accordion", items: [{ title: "", content: "" }] };
+    case "quiz": return { type: "quiz", questions: [{ text: "", options: ["", "", "", ""], correctIndex: 0 }] };
+    default: return { type };
+  }
+}
+
+function computeReadingMinutesAdmin(blocks) {
+  let words = 0;
+  (blocks || []).forEach(b => {
+    const div = document.createElement("div");
+    if (b.type === "richtext" || b.type === "tip" || b.type === "warning") div.innerHTML = b.html || "";
+    else if (b.type === "heading") div.textContent = b.text || "";
+    else if (b.type === "accordion") (b.items || []).forEach(it => { div.innerHTML += " " + (it.title || "") + " " + (it.content || ""); });
+    words += (div.textContent || "").trim().split(/\s+/).filter(Boolean).length;
+  });
+  return Math.max(1, Math.round(words / 200));
+}
+
+let __allLessonsAdminCache = [];
+
+async function loadLessonsPanel() {
+  const host = document.getElementById("lessonsListHost");
+  host.innerHTML = '<div class="loading-block"><span class="spinner"></span> Loading lessons…</div>';
+  try {
+    const snap = await db.collection("lessons").get();
+    __allLessonsAdminCache = [];
+    snap.forEach(doc => __allLessonsAdminCache.push({ id: doc.id, ...doc.data() }));
+    __allLessonsAdminCache.sort((a, b) => (a.order || 0) - (b.order || 0));
+    renderLessonsList();
+  } catch (err) {
+    host.innerHTML = "";
+    renderAlert(document.getElementById("adminAlertHost"), describeFirebaseError(err), { onRetry: loadLessonsPanel });
+  }
+}
+
+function renderLessonsList() {
+  const host = document.getElementById("lessonsListHost");
+  const search = (document.getElementById("adminLessonSearchInput").value || "").toLowerCase();
+  const items = __allLessonsAdminCache.filter(l => !search || l.title.toLowerCase().includes(search));
+  if (!items.length) {
+    host.innerHTML = '<div class="empty-state"><h3>No lessons yet</h3><p>Click "+ New lesson" to build your first one.</p></div>';
+    return;
+  }
+  host.innerHTML = items.map(l =>
+    '<div class="card"><div class="card-row">' +
+    '<div><h3 style="margin-bottom:2px;">' + escapeHtml(l.title) + ' <span class="badge ' + (l.published ? "badge-published" : "badge-draft") + '">' + (l.published ? "Published" : "Draft") + '</span></h3>' +
+    '<p style="color:var(--ink-soft); margin:0;">' + escapeHtml(l.category || "") + ' · ' + escapeHtml(l.difficulty || "") + ' · ' + (l.blocks || []).length + ' blocks · ⏱️ ' + (l.estimatedMinutes || 1) + ' min</p></div>' +
+    '<div style="display:flex; gap:8px;">' +
+    '<button class="btn btn-secondary btn-sm" data-edit-lesson="' + l.id + '">Edit</button>' +
+    '<button class="btn btn-danger btn-sm" data-delete-lesson="' + l.id + '">Delete</button>' +
+    '</div></div></div>'
+  ).join("");
+  host.querySelectorAll("[data-edit-lesson]").forEach(btn =>
+    btn.addEventListener("click", () => openLessonEditor(__allLessonsAdminCache.find(l => l.id === btn.getAttribute("data-edit-lesson"))))
+  );
+  host.querySelectorAll("[data-delete-lesson]").forEach(btn =>
+    btn.addEventListener("click", () => deleteLesson(btn.getAttribute("data-delete-lesson")))
+  );
+}
+document.getElementById("adminLessonSearchInput").addEventListener("input", renderLessonsList);
+document.getElementById("newLessonBtn").addEventListener("click", () => openLessonEditor(null));
+
+async function deleteLesson(id) {
+  if (!confirm("Delete this lesson?")) return;
+  try {
+    await db.collection("lessons").doc(id).delete();
+    showToast("Lesson deleted.", "success");
+    loadLessonsPanel();
+  } catch (err) {
+    showToast(describeFirebaseError(err), "error");
+  }
+}
+
+async function openLessonEditor(lesson) {
+  const isNew = !lesson;
+  let levelsForSelect = [];
+  try {
+    const snap = await db.collection("levels").get();
+    snap.forEach(doc => levelsForSelect.push({ id: doc.id, ...doc.data() }));
+    levelsForSelect.sort((a, b) => (a.order || 0) - (b.order || 0));
+  } catch (e) { /* level dropdown just stays empty if this fails */ }
+
+  openAdminModal(
+    '<h3 style="margin-bottom:16px;">' + (isNew ? "New lesson" : "Edit lesson") + '</h3>' +
+    '<div id="lessonEditorAlert"></div>' +
+    '<div class="field"><label>Title</label><input type="text" id="lessonTitleInput" value="' + escapeAttr(lesson ? lesson.title : "") + '"></div>' +
+    '<div class="card-row" style="gap:12px;">' +
+    '<div class="field" style="flex:1;"><label>Category</label><select id="lessonCategoryInput">' +
+    LESSON_CATEGORIES.map(c => '<option value="' + c + '" ' + (lesson && lesson.category === c ? "selected" : "") + '>' + c + '</option>').join("") + '</select></div>' +
+    '<div class="field" style="flex:1;"><label>Difficulty</label><select id="lessonDifficultyInput">' +
+    LESSON_DIFFICULTIES.map(d => '<option value="' + d + '" ' + (lesson && lesson.difficulty === d ? "selected" : "") + '>' + d + '</option>').join("") + '</select></div>' +
+    '</div>' +
+    '<div class="field"><label>Attach to a level (optional — shows a level badge, doesn\'t block access)</label><select id="lessonLevelInput"><option value="">None</option>' +
+    levelsForSelect.map(lv => '<option value="' + lv.id + '" ' + (lesson && lesson.levelId === lv.id ? "selected" : "") + '>' + escapeHtml(lv.title) + '</option>').join("") + '</select></div>' +
+    '<div class="field"><label>Order (lower shows first)</label><input type="number" id="lessonOrderInput" value="' + (lesson ? lesson.order || 0 : 0) + '"></div>' +
+    '<h4 style="margin:18px 0 8px;">Content blocks</h4>' +
+    '<div class="add-block-row">' +
+    Object.keys(BLOCK_TYPE_LABELS).map(t => '<button type="button" class="add-block-btn" data-add-block="' + t + '">+ ' + BLOCK_TYPE_LABELS[t] + '</button>').join("") +
+    '</div>' +
+    '<div class="block-editor-list" id="blockEditorList"></div>' +
+    '<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="lessonPublishedInput" ' + (lesson && lesson.published ? "checked" : "") + ' style="width:auto;"> Published (visible to students)</label></div>' +
+    '<button class="btn btn-primary btn-block" id="saveLessonBtn">Save lesson</button>',
+    () => {
+      let blocks = lesson && lesson.blocks ? JSON.parse(JSON.stringify(lesson.blocks)) : [];
+      let rteControllers = {};
+
+      function syncRteToBlocks() {
+        Object.keys(rteControllers).forEach(i => {
+          const idx = parseInt(i, 10);
+          if (blocks[idx] && rteControllers[idx]) blocks[idx].html = rteControllers[idx].getHtml();
+        });
+      }
+
+      function renderBlockList() {
+        const listHost = document.getElementById("blockEditorList");
+        rteControllers = {};
+        if (!blocks.length) {
+          listHost.innerHTML = '<div class="empty-state"><h3>No blocks yet</h3><p>Use the buttons above to add heading, text, images, embeds, or a quiz.</p></div>';
+          return;
+        }
+        listHost.innerHTML = blocks.map((b, i) => blockEditorItemHtml(b, i)).join("");
+
+        blocks.forEach((b, i) => {
+          const bodyHost = listHost.querySelector('[data-block-body="' + i + '"]');
+          if (!bodyHost) return;
+          if (b.type === "richtext" || b.type === "tip" || b.type === "warning") {
+            rteControllers[i] = createRichTextEditor(bodyHost.querySelector(".rte-mount"), b.html);
+          } else if (b.type === "heading") {
+            bodyHost.querySelector(".block-heading-text").addEventListener("input", (e) => { blocks[i].text = e.target.value; });
+            bodyHost.querySelector(".block-heading-level").addEventListener("change", (e) => { blocks[i].level = e.target.value; });
+          } else if (b.type === "image") {
+            bodyHost.querySelector(".block-image-url").addEventListener("input", (e) => { blocks[i].url = e.target.value; });
+            bodyHost.querySelector(".block-image-caption").addEventListener("input", (e) => { blocks[i].caption = e.target.value; });
+          } else if (b.type === "youtube" || b.type === "slides") {
+            bodyHost.querySelector(".block-embed-url").addEventListener("input", (e) => { blocks[i].url = e.target.value; });
+          } else if (b.type === "accordion") {
+            wireAccordionBlockEditor(bodyHost, blocks[i]);
+          } else if (b.type === "quiz") {
+            wireQuizBlockEditor(bodyHost, blocks[i]);
+          }
+        });
+
+        listHost.querySelectorAll("[data-move-up]").forEach(btn => btn.addEventListener("click", () => {
+          syncRteToBlocks();
+          const i = parseInt(btn.getAttribute("data-move-up"), 10);
+          if (i > 0) { [blocks[i - 1], blocks[i]] = [blocks[i], blocks[i - 1]]; renderBlockList(); }
+        }));
+        listHost.querySelectorAll("[data-move-down]").forEach(btn => btn.addEventListener("click", () => {
+          syncRteToBlocks();
+          const i = parseInt(btn.getAttribute("data-move-down"), 10);
+          if (i < blocks.length - 1) { [blocks[i + 1], blocks[i]] = [blocks[i], blocks[i + 1]]; renderBlockList(); }
+        }));
+        listHost.querySelectorAll("[data-remove-block]").forEach(btn => btn.addEventListener("click", () => {
+          syncRteToBlocks();
+          blocks.splice(parseInt(btn.getAttribute("data-remove-block"), 10), 1);
+          renderBlockList();
+        }));
+      }
+
+      document.querySelectorAll("[data-add-block]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          syncRteToBlocks();
+          blocks.push(defaultBlock(btn.getAttribute("data-add-block")));
+          renderBlockList();
+        });
+      });
+
+      renderBlockList();
+
+      document.getElementById("saveLessonBtn").addEventListener("click", async () => {
+        syncRteToBlocks();
+        const alertHost = document.getElementById("lessonEditorAlert");
+        const title = document.getElementById("lessonTitleInput").value.trim();
+        if (!title) { renderAlert(alertHost, "Title is required."); return; }
+        const data = {
+          title,
+          category: document.getElementById("lessonCategoryInput").value,
+          difficulty: document.getElementById("lessonDifficultyInput").value,
+          levelId: document.getElementById("lessonLevelInput").value || null,
+          order: parseInt(document.getElementById("lessonOrderInput").value, 10) || 0,
+          published: document.getElementById("lessonPublishedInput").checked,
+          blocks,
+          estimatedMinutes: computeReadingMinutesAdmin(blocks),
+        };
+        const btn = document.getElementById("saveLessonBtn");
+        setBtnLoading(btn, true);
+        try {
+          if (isNew) await db.collection("lessons").add(data);
+          else await db.collection("lessons").doc(lesson.id).update(data);
+          showToast("Lesson saved.", "success");
+          closeAdminModal();
+          loadLessonsPanel();
+        } catch (err) {
+          renderAlert(alertHost, describeFirebaseError(err));
+        } finally {
+          setBtnLoading(btn, false, "Save lesson");
+        }
+      });
+    }
+  );
+}
+
+function blockEditorItemHtml(b, i) {
+  let bodyHtml = "";
+  if (b.type === "heading") {
+    bodyHtml = '<div class="field" style="margin-bottom:8px;"><input type="text" class="block-heading-text" placeholder="Heading text" value="' + escapeAttr(b.text) + '"></div>' +
+      '<select class="block-heading-level"><option value="h2" ' + (b.level === "h2" ? "selected" : "") + '>Large (H2)</option><option value="h3" ' + (b.level === "h3" ? "selected" : "") + '>Small (H3)</option></select>';
+  } else if (b.type === "richtext" || b.type === "tip" || b.type === "warning") {
+    bodyHtml = '<div class="rte-mount"></div>';
+  } else if (b.type === "divider") {
+    bodyHtml = '<p style="color:var(--ink-soft); font-size:0.85rem; margin:0;">A horizontal divider — no content needed.</p>';
+  } else if (b.type === "image") {
+    bodyHtml = '<div class="field"><label>Image URL</label><input type="text" class="block-image-url" value="' + escapeAttr(b.url) + '" placeholder="https://…"></div>' +
+      '<div class="field" style="margin-bottom:0;"><label>Caption (optional)</label><input type="text" class="block-image-caption" value="' + escapeAttr(b.caption) + '"></div>';
+  } else if (b.type === "youtube") {
+    bodyHtml = '<div class="field" style="margin-bottom:0;"><label>YouTube link</label><input type="text" class="block-embed-url" value="' + escapeAttr(b.url) + '" placeholder="https://youtube.com/watch?v=…"></div>';
+  } else if (b.type === "slides") {
+    bodyHtml = '<div class="field" style="margin-bottom:0;"><label>Google Slides or Canva embed link</label><input type="text" class="block-embed-url" value="' + escapeAttr(b.url) + '" placeholder="https://docs.google.com/presentation/d/…"></div>';
+  } else if (b.type === "accordion") {
+    bodyHtml = '<div class="accordion-editor-host"></div><button type="button" class="btn btn-ghost btn-sm add-accordion-item">+ Add section</button>';
+  } else if (b.type === "quiz") {
+    bodyHtml = '<div class="quiz-block-editor-host"></div><button type="button" class="btn btn-ghost btn-sm add-quiz-question">+ Add question</button>';
+  }
+  return '<div class="block-editor-item"><div class="block-editor-item-head">' +
+    '<span class="block-type-label">' + BLOCK_TYPE_LABELS[b.type] + '</span>' +
+    '<div class="block-editor-item-actions">' +
+    '<button type="button" data-move-up="' + i + '" title="Move up">↑</button>' +
+    '<button type="button" data-move-down="' + i + '" title="Move down">↓</button>' +
+    '<button type="button" data-remove-block="' + i + '" title="Remove">✕</button>' +
+    '</div></div><div class="block-editor-item-body" data-block-body="' + i + '">' + bodyHtml + '</div></div>';
+}
+
+function wireAccordionBlockEditor(bodyHost, block) {
+  const host = bodyHost.querySelector(".accordion-editor-host");
+  function render() {
+    host.innerHTML = block.items.map((it, i) =>
+      '<div class="repeat-row" style="flex-direction:column; align-items:stretch;">' +
+      '<div style="display:flex; gap:8px;"><div class="field" style="flex:1; margin-bottom:6px;"><input type="text" data-ai="' + i + '" data-f="title" placeholder="Section title" value="' + escapeAttr(it.title) + '"></div>' +
+      '<button type="button" class="remove-row-btn" data-remove-acc="' + i + '">✕</button></div>' +
+      '<textarea data-ai="' + i + '" data-f="content" rows="3" placeholder="Section content (plain text)" style="width:100%; padding:10px 12px; border:1.5px solid var(--line-strong); border-radius:8px; font-family:inherit;">' + escapeHtml(it.content) + '</textarea>' +
+      '</div>'
+    ).join("");
+    host.querySelectorAll("[data-f]").forEach(el => el.addEventListener("input", () => {
+      const i = parseInt(el.getAttribute("data-ai"), 10);
+      block.items[i][el.getAttribute("data-f")] = el.value;
+    }));
+    host.querySelectorAll("[data-remove-acc]").forEach(btn => btn.addEventListener("click", () => {
+      block.items.splice(parseInt(btn.getAttribute("data-remove-acc"), 10), 1);
+      render();
+    }));
+  }
+  render();
+  bodyHost.querySelector(".add-accordion-item").addEventListener("click", () => {
+    block.items.push({ title: "", content: "" });
+    render();
+  });
+}
+
+function wireQuizBlockEditor(bodyHost, block) {
+  const host = bodyHost.querySelector(".quiz-block-editor-host");
+  function render() {
+    host.innerHTML = block.questions.map((q, qi) =>
+      '<div class="repeat-row" style="flex-direction:column; align-items:stretch;">' +
+      '<div style="display:flex; gap:8px;"><div class="field" style="flex:1; margin-bottom:6px;"><input type="text" data-qqi="' + qi + '" data-f="text" placeholder="Question ' + (qi + 1) + '" value="' + escapeAttr(q.text) + '"></div>' +
+      '<button type="button" class="remove-row-btn" data-remove-qq="' + qi + '">✕</button></div>' +
+      [0, 1, 2, 3].map(oi =>
+        '<div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">' +
+        '<input type="radio" class="correct-radio" name="lqcorrect' + qi + '" data-qqi="' + qi + '" data-oi="' + oi + '" ' + (q.correctIndex === oi ? "checked" : "") + '>' +
+        '<input type="text" data-qqi="' + qi + '" data-oi="' + oi + '" data-f="opt" placeholder="Option ' + (oi + 1) + '" value="' + escapeAttr(q.options[oi] || "") + '" style="flex:1; padding:8px 10px; border:1.5px solid var(--line-strong); border-radius:8px;"></div>'
+      ).join("") + '</div>'
+    ).join("");
+    host.querySelectorAll("input[data-f='text']").forEach(inp => inp.addEventListener("input", () => {
+      block.questions[parseInt(inp.getAttribute("data-qqi"), 10)].text = inp.value;
+    }));
+    host.querySelectorAll("input[data-f='opt']").forEach(inp => inp.addEventListener("input", () => {
+      const qi = parseInt(inp.getAttribute("data-qqi"), 10), oi = parseInt(inp.getAttribute("data-oi"), 10);
+      block.questions[qi].options[oi] = inp.value;
+    }));
+    host.querySelectorAll(".correct-radio").forEach(r => r.addEventListener("change", () => {
+      block.questions[parseInt(r.getAttribute("data-qqi"), 10)].correctIndex = parseInt(r.getAttribute("data-oi"), 10);
+    }));
+    host.querySelectorAll("[data-remove-qq]").forEach(btn => btn.addEventListener("click", () => {
+      block.questions.splice(parseInt(btn.getAttribute("data-remove-qq"), 10), 1);
+      render();
+    }));
+  }
+  render();
+  bodyHost.querySelector(".add-quiz-question").addEventListener("click", () => {
+    block.questions.push({ text: "", options: ["", "", "", ""], correctIndex: 0 });
+    render();
   });
 }
 

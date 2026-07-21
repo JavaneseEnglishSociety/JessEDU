@@ -457,6 +457,7 @@ function escapeHtml(str) {
   div.textContent = str == null ? "" : String(str);
   return div.innerHTML;
 }
+function escapeAttr(str) { return escapeHtml(str).replace(/"/g, "&quot;"); }
 
 function shuffle(arr) {
   const a = arr.slice();
@@ -572,6 +573,215 @@ function openMediaViewer(item) {
     if (fsBtn) fsBtn.addEventListener("click", () => {
       const frame = document.getElementById("mediaPdfFrame");
       if (frame.requestFullscreen) frame.requestFullscreen();
+    });
+  });
+}
+
+/* ---------------------------------------------------------
+   9c. Lessons — block-based lesson viewer (student side)
+   --------------------------------------------------------- */
+const LESSON_CATEGORIES = ["Grammar", "Vocabulary", "Speaking", "Writing", "Reading", "Listening", "IELTS", "TOEFL", "MUN", "Business English"];
+const LESSON_DIFFICULTIES = ["Beginner", "Elementary", "Intermediate", "Advanced", "Expert"];
+
+let __allLessonsCache = [];
+
+function slidesEmbedUrl(url) {
+  // Accepts a Google Slides "Publish to web" or share URL and a Canva
+  // "Share > Embed" URL alike — both are just used as-is in an iframe;
+  // we only lightly normalize the common Google Slides /edit URL into
+  // its /embed form so admins can paste either kind of link.
+  const gMatch = url.match(/docs\.google\.com\/presentation\/d\/([a-zA-Z0-9_-]+)/);
+  if (gMatch) return "https://docs.google.com/presentation/d/" + gMatch[1] + "/embed?start=false&loop=false&delayms=3000";
+  return url;
+}
+
+function computeReadingMinutes(blocks) {
+  let words = 0;
+  (blocks || []).forEach(b => {
+    const text = document.createElement("div");
+    if (b.type === "richtext" || b.type === "tip" || b.type === "warning") text.innerHTML = b.html || "";
+    else if (b.type === "heading") text.textContent = b.text || "";
+    else if (b.type === "accordion") (b.items || []).forEach(it => { text.innerHTML += " " + (it.title || "") + " " + (it.content || ""); });
+    words += (text.textContent || "").trim().split(/\s+/).filter(Boolean).length;
+  });
+  return Math.max(1, Math.round(words / 200));
+}
+
+async function fetchPublishedLessons() {
+  const snap = await db.collection("lessons").where("published", "==", true).get();
+  const lessons = [];
+  snap.forEach(doc => lessons.push({ id: doc.id, ...doc.data() }));
+  lessons.sort((a, b) => (a.order || 0) - (b.order || 0));
+  return lessons;
+}
+
+let __lessonCatFilter = "all";
+let __lessonDiffFilter = "all";
+
+async function loadLessonLibrary() {
+  const host = document.getElementById("lessonGridHost");
+  host.innerHTML = '<div class="loading-block"><span class="spinner"></span> Loading lessons…</div>';
+  try {
+    __allLessonsCache = await fetchPublishedLessons();
+    const catSelect = document.getElementById("lessonCategoryFilter");
+    const diffSelect = document.getElementById("lessonDifficultyFilter");
+    if (catSelect.options.length <= 1) {
+      LESSON_CATEGORIES.forEach(c => catSelect.insertAdjacentHTML("beforeend", '<option value="' + c + '">' + c + '</option>'));
+    }
+    if (diffSelect.options.length <= 1) {
+      LESSON_DIFFICULTIES.forEach(d => diffSelect.insertAdjacentHTML("beforeend", '<option value="' + d + '">' + d + '</option>'));
+    }
+    renderLessonGrid();
+  } catch (err) {
+    host.innerHTML = "";
+    renderAlert(document.getElementById("dashAlertHost"), describeFirebaseError(err), { onRetry: loadLessonLibrary });
+  }
+}
+
+function renderLessonGrid() {
+  const host = document.getElementById("lessonGridHost");
+  const search = (document.getElementById("lessonSearchInput").value || "").toLowerCase();
+  const completed = getCompletedSet();
+  const items = __allLessonsCache.filter(l =>
+    (__lessonCatFilter === "all" || l.category === __lessonCatFilter) &&
+    (__lessonDiffFilter === "all" || l.difficulty === __lessonDiffFilter) &&
+    (!search || l.title.toLowerCase().includes(search))
+  );
+  if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No lessons found</h3></div>'; return; }
+  host.innerHTML = '<div class="lesson-grid">' + items.map(l =>
+    '<div class="lesson-card" data-open-lesson="' + l.id + '">' +
+    '<div class="lesson-card-tags"><span class="lesson-tag">' + escapeHtml(l.category || "") + '</span>' +
+    '<span class="lesson-tag diff-' + escapeHtml(l.difficulty || "") + '">' + escapeHtml(l.difficulty || "") + '</span></div>' +
+    '<h4>' + escapeHtml(l.title) + (completed[l.id] ? ' <span class="lesson-done-badge">✓</span>' : '') + '</h4>' +
+    '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div></div>'
+  ).join("") + '</div>';
+  host.querySelectorAll("[data-open-lesson]").forEach(card =>
+    card.addEventListener("click", () => openLessonViewer(items.find(l => l.id === card.getAttribute("data-open-lesson"))))
+  );
+}
+
+document.getElementById("lessonSearchInput").addEventListener("input", renderLessonGrid);
+document.getElementById("lessonCategoryFilter").addEventListener("change", (e) => { __lessonCatFilter = e.target.value; renderLessonGrid(); });
+document.getElementById("lessonDifficultyFilter").addEventListener("change", (e) => { __lessonDiffFilter = e.target.value; renderLessonGrid(); });
+
+function renderLessonBlock(block) {
+  switch (block.type) {
+    case "heading":
+      return '<div class="lesson-block"><' + (block.level === "h3" ? "h3" : "h2") + ' class="lesson-block-heading">' + escapeHtml(block.text || "") + '</' + (block.level === "h3" ? "h3" : "h2") + '></div>';
+    case "richtext":
+      return '<div class="lesson-block rte-render">' + sanitizeRichHtml(block.html || "") + '</div>';
+    case "divider":
+      return '<hr class="lesson-block-divider">';
+    case "image":
+      return '<div class="lesson-block lesson-block-image"><img src="' + escapeHtml(block.url || "") + '" alt="' + escapeAttr(block.caption || "") + '">' +
+        (block.caption ? '<div class="lesson-img-caption">' + escapeHtml(block.caption) + '</div>' : '') + '</div>';
+    case "youtube": {
+      const link = parseMediaLink(block.url || "");
+      return '<div class="lesson-block"><div class="lesson-embed-wrap"><iframe src="' + escapeHtml(link.embedUrl) + '" allowfullscreen allow="autoplay; encrypted-media"></iframe></div></div>';
+    }
+    case "slides":
+      return '<div class="lesson-block"><div class="lesson-embed-wrap"><iframe src="' + escapeHtml(slidesEmbedUrl(block.url || "")) + '" allowfullscreen></iframe></div></div>';
+    case "tip":
+      return '<div class="lesson-block lesson-block-tip"><span class="box-label">💡 Tip</span><div class="rte-render">' + sanitizeRichHtml(block.html || "") + '</div></div>';
+    case "warning":
+      return '<div class="lesson-block lesson-block-warning"><span class="box-label">⚠️ Warning</span><div class="rte-render">' + sanitizeRichHtml(block.html || "") + '</div></div>';
+    case "accordion":
+      return '<div class="lesson-block">' + (block.items || []).map((it, i) =>
+        '<div class="accordion-item" data-acc-index="' + i + '">' +
+        '<button type="button" class="accordion-header">' + escapeHtml(it.title || "") + '<span class="chevron">▾</span></button>' +
+        '<div class="accordion-body rte-render">' + sanitizeRichHtml(it.content || "") + '</div></div>'
+      ).join("") + '</div>';
+    case "quiz":
+      return '<div class="lesson-block lesson-quiz-block" id="lessonQuizBlockHost"></div>';
+    default:
+      return "";
+  }
+}
+
+function wireLessonInteractivity(container, lesson) {
+  container.querySelectorAll(".accordion-header").forEach(btn => {
+    btn.addEventListener("click", () => btn.closest(".accordion-item").classList.toggle("open"));
+  });
+  const quizBlock = (lesson.blocks || []).find(b => b.type === "quiz");
+  const quizHost = container.querySelector("#lessonQuizBlockHost");
+  if (quizBlock && quizHost) {
+    renderInlineLessonQuiz(quizHost, quizBlock, lesson);
+  }
+}
+
+function renderInlineLessonQuiz(host, quizBlock, lesson) {
+  const questions = quizBlock.questions || [];
+  if (!questions.length) { host.innerHTML = ""; return; }
+  const answers = new Array(questions.length).fill(null);
+  host.innerHTML = '<p class="eyebrow">Check your understanding</p>' +
+    questions.map((q, qi) =>
+      '<div class="q-block"><div class="q-text">' + escapeHtml(q.text) + '</div><div class="opt-list">' +
+      q.options.map((opt, oi) => '<label class="opt-item" data-qi="' + qi + '" data-oi="' + oi + '">' + escapeHtml(opt) + '</label>').join("") +
+      '</div></div>'
+    ).join("") +
+    '<button class="btn btn-primary" id="lessonQuizSubmitBtn" disabled>Submit answers</button>' +
+    '<div id="lessonQuizResultHost" style="margin-top:12px;"></div>';
+
+  host.querySelectorAll(".opt-item").forEach(opt => {
+    opt.addEventListener("click", () => {
+      const qi = parseInt(opt.getAttribute("data-qi"), 10);
+      const oi = parseInt(opt.getAttribute("data-oi"), 10);
+      host.querySelectorAll('.opt-item[data-qi="' + qi + '"]').forEach(o => o.classList.remove("selected"));
+      opt.classList.add("selected");
+      answers[qi] = oi;
+      if (answers.every(a => a !== null)) document.getElementById("lessonQuizSubmitBtn").disabled = false;
+    });
+  });
+
+  document.getElementById("lessonQuizSubmitBtn").addEventListener("click", async () => {
+    let correct = 0;
+    questions.forEach((q, qi) => { if (answers[qi] === q.correctIndex) correct++; });
+    const fraction = correct / questions.length;
+    const passed = fraction >= 0.6;
+    const resultHost = document.getElementById("lessonQuizResultHost");
+    resultHost.innerHTML = '<div class="alert alert-' + (passed ? "success" : "error") + '">' +
+      'You got ' + correct + '/' + questions.length + ' correct. ' +
+      (passed ? "Nice work — claim your XP below." : "You need 60% to earn XP — review the lesson and try again.") + '</div>';
+    if (passed) markLessonComplete(lesson, fraction);
+  });
+}
+
+async function markLessonComplete(lesson, scoreFraction) {
+  const completed = getCompletedSet();
+  if (completed[lesson.id]) { showToast("Already completed — no extra XP for a repeat.", "info"); return; }
+  try {
+    await completeActivity(lesson.id, scoreFraction != null ? scoreFraction : 1);
+    showToast("+" + XP_PER_ACTIVITY + " XP, +" + JESS_POINTS_PER_ACTIVITY + " JESS Points!", "success");
+    await refreshProfileCache();
+    updateSidebarStats();
+    renderLessonGrid();
+  } catch (err) {
+    showToast(describeFirebaseError(err), "error");
+  }
+}
+
+function openLessonViewer(lesson) {
+  const completed = getCompletedSet();
+  const hasQuizBlock = (lesson.blocks || []).some(b => b.type === "quiz");
+  const alreadyDone = !!completed[lesson.id];
+
+  const bodyHtml =
+    '<div class="lesson-viewer-head"><p class="eyebrow">' + escapeHtml(lesson.category || "") + ' · ' + escapeHtml(lesson.difficulty || "") + ' · ⏱️ ' + (lesson.estimatedMinutes || 1) + ' min</p>' +
+    '<h2 style="margin:0;">' + escapeHtml(lesson.title) + '</h2></div>' +
+    (lesson.blocks || []).map(renderLessonBlock).join("") +
+    (!hasQuizBlock ? '<div style="margin-top:24px; text-align:center;">' +
+      (alreadyDone
+        ? '<span class="badge badge-published">✓ Completed</span>'
+        : '<button class="btn btn-primary" id="lessonMarkCompleteBtn">Mark as complete</button>') +
+      '</div>' : '');
+
+  openModal(bodyHtml, () => {
+    const panel = document.querySelector("#modalHost .modal-panel");
+    wireLessonInteractivity(panel, lesson);
+    const markBtn = document.getElementById("lessonMarkCompleteBtn");
+    if (markBtn) markBtn.addEventListener("click", async () => {
+      await markLessonComplete(lesson, 1);
+      closeModal();
     });
   });
 }
@@ -849,14 +1059,16 @@ document.querySelectorAll("[data-panel]").forEach(el => {
     el.classList.add("active");
     const panel = el.getAttribute("data-panel");
     document.getElementById("panelPaths").hidden = panel !== "paths";
+    document.getElementById("panelLessons").hidden = panel !== "lessons";
     document.getElementById("panelProgress").hidden = panel !== "progress";
     document.getElementById("panelMedia").hidden = panel !== "media";
-    document.getElementById("dashPanelTitle").textContent =
-      panel === "paths" ? "Your path to fluent English" : panel === "progress" ? "My progress" : "Resources";
-    document.getElementById("dashPanelEyebrow").textContent =
-      panel === "paths" ? "Learning path" : panel === "progress" ? "Progress" : "Media Library";
+    const titles = { paths: "Your path to fluent English", lessons: "Lessons", progress: "My progress", media: "Resources" };
+    const eyebrows = { paths: "Learning path", lessons: "Lessons", progress: "Progress", media: "Media Library" };
+    document.getElementById("dashPanelTitle").textContent = titles[panel] || "";
+    document.getElementById("dashPanelEyebrow").textContent = eyebrows[panel] || "";
     if (panel === "progress") renderCompletedList();
     if (panel === "media") loadMediaLibrary();
+    if (panel === "lessons") loadLessonLibrary();
     __presencePage = panel === "paths" ? "dashboard" : panel;
   });
 });

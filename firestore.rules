@@ -107,6 +107,21 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // JESSEDU — lessons (block-based teaching content: headings,
+    // rich text, images, YouTube/Slides embeds, inline quizzes, tip/
+    // warning boxes, accordions). Blocks live as an array field on
+    // the lesson doc itself, same pattern as quiz questions/match
+    // pairs on activities — keeps saves atomic, no extra collection
+    // needed. Completion reuses the SAME users/{uid}/progress/{id}
+    // rule already defined above (it doesn't care whether {id} is an
+    // activityId or a lessonId, both are just unique document IDs).
+    // ============================================================
+    match /lessons/{lessonId} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ============================================================
     // SHARED — visitor analytics for BOTH sites.
     // ============================================================
     match /analytics/{docId} {
