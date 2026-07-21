@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JESS Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============================================================
+     Passcode gate — full-page view, never a modal (same rule as
+     the public site's auth view; see build notes §4)
+     ============================================================ -->
+<div id="adminGate" class="admin-gate">
+  <div class="auth-card">
+    <a href="index.html" class="back-link">&larr; Back to JESS</a>
+    <p class="eyebrow">JESS Admin</p>
+    <h2>Enter admin passcode</h2>
+    <div id="adminGateAlert"></div>
+    <form id="adminLoginForm">
+      <div class="field">
+        <label for="authSecret9">Passcode</label>
+        <input type="text" class="pw-mask" id="authSecret9" name="authSecret9" autocomplete="off" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="adminLoginBtn">
+        <span class="btn-label">Enter admin panel</span>
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ============================================================
+     Admin dashboard shell — full-page view
+     ============================================================ -->
+<div id="adminDashboard" hidden>
+  <div class="dash-shell">
+    <aside class="dash-sidebar">
+      <a href="index.html" class="brand"><span class="brand-mark">J</span> JESS Admin</a>
+      <nav class="sidebar-nav">
+        <button class="sidebar-link active" data-admin-panel="overview">📈 Overview</button>
+        <button class="sidebar-link" data-admin-panel="learners">🧑‍🎓 Learners</button>
+        <button class="sidebar-link" data-admin-panel="levels">🗺️ Levels</button>
+        <button class="sidebar-link" data-admin-panel="activities">🧩 Activities</button>
+        <button class="sidebar-link" data-admin-panel="placement">📍 Placement quiz</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="sidebar-link" id="adminLogoutBtn">🚪 Log out</button>
+      </div>
+    </aside>
+
+    <main class="dash-main" style="max-width: 1080px;">
+      <div id="adminAlertHost"></div>
+
+      <!-- Overview -->
+      <section id="adminPanelOverview">
+        <div class="dash-header">
+          <div><p class="eyebrow">Overview</p><h2 style="margin:0;">Live site stats</h2></div>
+          <button class="btn btn-secondary btn-sm" id="clearStaleBtn">Clear stale sessions</button>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-num" id="kpiVisits">—</div><div class="kpi-label">Total visits</div></div>
+          <div class="kpi-card"><div class="kpi-num" id="kpiOnline">—</div><div class="kpi-label">Online now</div></div>
+          <div class="kpi-card"><div class="kpi-num" id="kpiLearners">—</div><div class="kpi-label">Registered learners</div></div>
+          <div class="kpi-card"><div class="kpi-num" id="kpiLastVisit">—</div><div class="kpi-label">Last visit</div></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:14px;">Active sessions</h3>
+          <div id="presenceTableHost"></div>
+        </div>
+      </section>
+
+      <!-- Learners -->
+      <section id="adminPanelLearners" hidden>
+        <div class="dash-header"><div><p class="eyebrow">Learners</p><h2 style="margin:0;">Registered learners</h2></div></div>
+        <div id="learnersTableHost" class="card"></div>
+      </section>
+
+      <!-- Levels -->
+      <section id="adminPanelLevels" hidden>
+        <div class="dash-header">
+          <div><p class="eyebrow">Levels</p><h2 style="margin:0;">Manage levels</h2></div>
+          <button class="btn btn-primary" id="newLevelBtn">+ New level</button>
+        </div>
+        <div id="levelsListHost"></div>
+      </section>
+
+      <!-- Activities -->
+      <section id="adminPanelActivities" hidden>
+        <div class="dash-header"><div><p class="eyebrow">Activities</p><h2 style="margin:0;">Manage activities</h2></div></div>
+        <div class="field" style="max-width:320px;">
+          <label for="activityLevelSelect">Level</label>
+          <select id="activityLevelSelect"></select>
+        </div>
+        <div class="toolbar">
+          <div></div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary btn-sm" data-new-activity="quiz">+ Quiz</button>
+            <button class="btn btn-secondary btn-sm" data-new-activity="match">+ Word match</button>
+            <button class="btn btn-secondary btn-sm" data-new-activity="fill">+ Fill in the blank</button>
+          </div>
+        </div>
+        <div id="activitiesListHost"></div>
+      </section>
+
+      <!-- Placement quiz -->
+      <section id="adminPanelPlacement" hidden>
+        <div class="dash-header">
+          <div><p class="eyebrow">Placement quiz</p><h2 style="margin:0;">Manage placement quiz</h2></div>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-secondary btn-sm" id="loadStarterQuestionsBtn">Load starter questions</button>
+            <button class="btn btn-primary btn-sm" id="addPlacementQBtn">+ Add question</button>
+          </div>
+        </div>
+        <div id="placementListHost"></div>
+        <button class="btn btn-primary" id="savePlacementBtn" style="margin-top:16px;">Save placement quiz</button>
+      </section>
+    </main>
+  </div>
+</div>
+
+<div id="modalHost"></div>
+<div id="toastStack" class="toast-stack"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

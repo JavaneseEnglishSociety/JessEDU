@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JESS — Javanese English Speaking Society</title>
+<meta name="description" content="Free English lessons for every kid, everywhere. Learn English, build confidence, and grow with JESS.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============================================================
+     LANDING NAV + VIEW — full-page view #1
+     ============================================================ -->
+<div id="landingNav">
+  <nav class="landing-nav">
+    <div class="container">
+      <a href="#" class="brand" data-nav="landing">
+        <span class="brand-mark">J</span> JESS
+      </a>
+      <div class="nav-actions">
+        <button class="btn btn-ghost" data-open-auth="login">Log in</button>
+        <button class="btn btn-primary" data-open-auth="signup">Start learning free</button>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<div id="landingView">
+  <section class="hero">
+    <div class="batik-texture"></div>
+    <div class="container">
+      <div class="hero-inner">
+        <p class="eyebrow">100% free · no ads · no fees, ever</p>
+        <h1>Learn English. Build confidence. <span class="accent">Grow with JESS.</span></h1>
+        <p class="hero-sub">JESS — the Javanese English Speaking Society — gives every child a clear, gamified path to spoken and written English, wherever they're starting from. No cost, no catch, just levels to climb.</p>
+        <div class="hero-cta">
+          <button class="btn btn-primary" data-open-auth="signup">Create my free account</button>
+          <button class="btn btn-secondary" id="guestCtaBtn">Continue as guest</button>
+        </div>
+        <div class="stat-row">
+          <div>
+            <div class="stat-num">4</div>
+            <div class="stat-label">levels to master</div>
+          </div>
+          <div>
+            <div class="stat-num">3</div>
+            <div class="stat-label">activity types</div>
+          </div>
+          <div>
+            <div class="stat-num">$0</div>
+            <div class="stat-label">cost, always</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-dim">
+    <div class="batik-texture"></div>
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">How JESS works</p>
+        <h2>A path, not a paywall.</h2>
+        <p style="color:var(--ink-soft)">Every learner walks the same stepping-stone path — take a short placement quiz, land on the right level, and clear activities to earn XP and JESS Points along the way.</p>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="icon-tile" style="background:rgba(47,158,134,0.14); color:var(--leaf-dark);">📍</div>
+          <h3>Find your level</h3>
+          <p>A quick placement quiz places you on the level that actually fits — no guessing, no starting over.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon-tile" style="background:rgba(245,166,35,0.16); color:#8a5a0f;">🧩</div>
+          <h3>Learn by doing</h3>
+          <p>Quizzes, word matches, and fill-in-the-blanks — bite-sized activities built by real teachers.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon-tile" style="background:rgba(90,184,232,0.16); color:#1D6E93;">🔥</div>
+          <h3>Keep your streak</h3>
+          <p>Come back daily to keep your streak alive and rack up JESS Points as you climb.</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon-tile" style="background:rgba(255,107,91,0.14); color:#B23A2C;">🎒</div>
+          <h3>Try before you sign up</h3>
+          <p>Continue as a guest and try every level with zero data collected — join for real whenever you're ready.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container" style="text-align:center; max-width:640px;">
+      <p class="eyebrow">Javanese English Speaking Society</p>
+      <h2>Built for learners who deserve more than a paywall.</h2>
+      <p style="color:var(--ink-soft)">JESS exists so that where you're born never decides whether you get to speak English with confidence. Join thousands of learners already on the path.</p>
+      <button class="btn btn-primary" data-open-auth="signup">Get started — it's free</button>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container" style="display:flex; justify-content:space-between; width:100%; flex-wrap:wrap; gap:12px;">
+      <span>© <span id="yearNow"></span> JESS — Javanese English Speaking Society</span>
+      <a href="admin.html" style="color:var(--ink-soft)">Admin</a>
+    </div>
+  </footer>
+</div>
+
+<!-- ============================================================
+     AUTH VIEW — full-page view #2 (never a modal, see build notes)
+     ============================================================ -->
+<div id="authView" hidden>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <button class="back-link" data-nav="landing">&larr; Back to JESS</button>
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-auth-tab="signup" type="button">Sign up</button>
+        <button class="auth-tab" data-auth-tab="login" type="button">Log in</button>
+      </div>
+
+      <div id="authAlert"></div>
+
+      <!-- Sign up form -->
+      <form id="signupForm">
+        <div class="field">
+          <label for="suUsername">Username</label>
+          <input type="text" id="suUsername" name="suUsername" autocomplete="off" autocapitalize="off" spellcheck="false" required minlength="3" maxlength="20" pattern="[a-zA-Z0-9_]+">
+          <div class="field-hint">3–20 characters, letters/numbers/underscore only.</div>
+        </div>
+        <div class="field">
+          <label for="authSecret1">Password</label>
+          <input type="text" class="pw-mask" id="authSecret1" name="authSecret1" autocomplete="off" required minlength="6">
+          <div class="field-hint">At least 6 characters.</div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="signupSubmitBtn">
+          <span class="btn-label">Create my account</span>
+        </button>
+      </form>
+
+      <!-- Log in form -->
+      <form id="loginForm" hidden>
+        <div class="field">
+          <label for="liUsername">Username</label>
+          <input type="text" id="liUsername" name="liUsername" autocomplete="off" autocapitalize="off" spellcheck="false" required>
+        </div>
+        <div class="field">
+          <label for="authSecret2">Password</label>
+          <input type="text" class="pw-mask" id="authSecret2" name="authSecret2" autocomplete="off" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="loginSubmitBtn">
+          <span class="btn-label">Log in</span>
+        </button>
+      </form>
+
+      <div class="divider-or">or</div>
+      <button class="btn btn-secondary btn-block" id="guestFromAuthBtn" type="button">Continue as guest</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     DASHBOARD — full-page view #3
+     ============================================================ -->
+<div id="dashboard" hidden>
+  <div id="guestBanner" class="guest-banner" hidden>
+    <span><strong>Guest mode:</strong> your progress is only saved on this device and will be lost if you clear browser data.</span>
+    <button class="btn btn-secondary" data-open-auth="signup" id="guestBannerSignupBtn">Create a free account</button>
+  </div>
+
+  <div class="dash-shell">
+    <aside class="dash-sidebar">
+      <a href="#" class="brand" data-nav="landing"><span class="brand-mark">J</span> JESS</a>
+
+      <div class="dash-user">
+        <div class="name" id="dashUserName">Learner</div>
+        <div class="stat-pill-row">
+          <span class="stat-pill" id="dashXpPill">0 XP</span>
+          <span class="stat-pill" id="dashPointsPill">0 JP</span>
+          <span class="stat-pill" id="dashLevelPill">Lvl 1</span>
+        </div>
+        <div class="streak" id="dashStreakLabel"><span class="streak-flame">🔥</span> 0 day streak</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="sidebar-link active" data-panel="paths">🗺️ Learning path</button>
+        <button class="sidebar-link" data-panel="progress">📊 My progress</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <button class="sidebar-link" id="logoutBtn">🚪 Log out</button>
+      </div>
+    </aside>
+
+    <main class="dash-main">
+      <div class="dash-header">
+        <div>
+          <p class="eyebrow" id="dashPanelEyebrow">Learning path</p>
+          <h2 id="dashPanelTitle" style="margin:0;">Your path to fluent English</h2>
+        </div>
+      </div>
+
+      <div id="dashAlertHost"></div>
+
+      <!-- Placement quiz prompt -->
+      <div class="placement-card" id="placementCard" hidden>
+        <div>
+          <h3>Not sure where to start?</h3>
+          <p>Take the 2-minute placement quiz and we'll suggest the right level for you.</p>
+        </div>
+        <button class="btn btn-secondary" id="startPlacementBtn">Take placement quiz</button>
+      </div>
+
+      <!-- Panel: paths -->
+      <div id="panelPaths">
+        <div id="levelPathHost" class="level-path"></div>
+      </div>
+
+      <!-- Panel: progress -->
+      <div id="panelProgress" hidden>
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-num" id="progXp">0</div><div class="kpi-label">Total XP</div></div>
+          <div class="kpi-card"><div class="kpi-num" id="progPoints">0</div><div class="kpi-label">JESS Points</div></div>
+          <div class="kpi-card"><div class="kpi-num" id="progLevel">1</div><div class="kpi-label">Current level</div></div>
+          <div class="kpi-card"><div class="kpi-num" id="progStreak">0</div><div class="kpi-label">Day streak</div></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-bottom:14px;">Completed activities</h3>
+          <div id="completedList"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============================================================
+     Real modal overlay — activity runner & placement quiz only
+     (never used for auth — see build notes §4)
+     ============================================================ -->
+<div id="modalHost"></div>
+
+<div id="toastStack" class="toast-stack"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

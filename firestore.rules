@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == "begawanbillykurniawan@gmail.com";
+    }
+
+    // ============================================================
+    // JESSPORTAL (NGO info site) — shares this Firestore database
+    // with JESSEDU below. JESSEDU's own code never touches these.
+    // ============================================================
+    match /jess/site {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /messages/{messageId} {
+      allow create: if true;
+      allow read, delete: if isAdmin();
+      allow update: if false;
+    }
+
+    // ============================================================
+    // JESSEDU — accounts
+    // ============================================================
+
+    // Username -> uid index. Publicly readable (needed to check
+    // availability before signup) but a doc can only ever be CREATED —
+    // never updated or deleted — by the uid that owns it. This makes
+    // username claiming race-safe: if two people submit the same
+    // username at once, Firestore's transaction retry logic guarantees
+    // only one create wins.
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if request.auth != null
+                    && request.auth.uid == request.resource.data.uid
+                    && request.resource.data.keys().hasOnly(['uid', 'createdAt']);
+      allow update, delete: if false;
+    }
+
+    // A learner's profile. Created once with fixed starting values.
+    // Updates are allowed ONLY for finishing an activity: xp must go up
+    // by exactly XP_PER_ACTIVITY (10) and jessPoints by exactly
+    // JESS_POINTS_PER_ACTIVITY (5) — the same fixed amounts app.js uses
+    // — so a learner can't grant themselves an arbitrary XP total from
+    // the browser console. level/streak aren't tied to a real
+    // unlock/reward (cosmetic only), so they're just constrained to
+    // "a non-decreasing number", not exact-matched — enforcing the true
+    // level formula in rules language isn't practical without a server.
+    // This is a best-effort limit, not the same guarantee Cloud
+    // Functions would give — flagged here on purpose.
+    match /users/{uid} {
+      allow read: if (request.auth != null && request.auth.uid == uid) || isAdmin();
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.keys().hasOnly(
+                         ['username', 'displayName', 'xp', 'level', 'jessPoints', 'streak', 'lastActiveDate', 'createdAt'])
+                    && request.resource.data.xp == 0
+                    && request.resource.data.level == 1
+                    && request.resource.data.jessPoints == 0
+                    && request.resource.data.streak == 0;
+      allow update: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+                         ['xp', 'level', 'jessPoints', 'streak', 'lastActiveDate'])
+                    && request.resource.data.xp == resource.data.xp + 10
+                    && request.resource.data.jessPoints == resource.data.jessPoints + 5
+                    && request.resource.data.level is int && request.resource.data.level >= resource.data.level
+                    && request.resource.data.streak is int && request.resource.data.streak >= 0;
+      allow delete: if false;
+    }
+
+    // One completion record per learner per activity. create-only and
+    // immutable — this is what stops a learner from replaying the same
+    // activity for repeated XP: app.js checks this doc doesn't already
+    // exist (in the same transaction as the users/{uid} update above)
+    // before granting XP for it.
+    match /users/{uid}/progress/{activityId} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+                    && request.resource.data.keys().hasOnly(['completedAt', 'score']);
+      allow update, delete: if false;
+    }
+
+    // ============================================================
+    // JESSEDU — content authored by the admin
+    // ============================================================
+    match /levels/{levelId} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+    match /activities/{activityId} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+    match /placementQuiz/config {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // SHARED — visitor analytics for BOTH sites.
+    // ============================================================
+    match /analytics/{docId} {
+      allow read: if isAdmin();
+      allow create: if docId in ['portalTotals', 'eduTotals']
+                    && request.resource.data.keys().hasOnly(['visits', 'lastVisitAt'])
+                    && request.resource.data.visits == 1;
+      allow update: if docId in ['portalTotals', 'eduTotals']
+                    && request.resource.data.keys().hasOnly(['visits', 'lastVisitAt'])
+                    && request.resource.data.visits == resource.data.visits + 1;
+      allow delete: if false;
+    }
+    match /presence/{sessionId} {
+      allow create, update: if request.resource.data.keys().hasOnly(['lastSeen', 'loggedIn', 'page', 'site'])
+                            && request.resource.data.site in ['portal', 'edu'];
+      allow read, delete: if isAdmin();
+    }
+  }
+}
