@@ -121,16 +121,20 @@
 
       <!-- Media Library -->
       <section id="adminPanelMedia" hidden>
-        <div class="dash-header"><div><p class="eyebrow">Media Library</p><h2 style="margin:0;">Upload &amp; manage media</h2></div></div>
+        <div class="dash-header"><div><p class="eyebrow">Media Library</p><h2 style="margin:0;">Add &amp; manage resources</h2></div></div>
         <div class="card" style="margin-bottom:20px;">
-          <h3 style="margin-bottom:14px;">Upload new file</h3>
+          <h3 style="margin-bottom:6px;">Add a resource</h3>
+          <p style="color:var(--ink-soft); font-size:0.85rem; margin-bottom:14px;">
+            Paste a link — a Google Drive share link (for PDFs, PPT exports, worksheets), a YouTube link, or any
+            direct file URL. Nothing is uploaded to this site; the file stays wherever you hosted it, free of charge.
+          </p>
           <div id="mediaUploadAlert"></div>
-          <div class="field"><label>File</label><input type="file" id="mediaFileInput"></div>
+          <div class="field"><label>Link (Google Drive, YouTube, or direct file URL)</label><input type="text" id="mediaUrlInput" placeholder="https://drive.google.com/file/d/…/view"></div>
           <div class="field"><label>Title</label><input type="text" id="mediaTitleInput"></div>
           <div class="field"><label>Category</label><select id="mediaCategoryInput"></select></div>
           <div class="field"><label>Tags (comma separated)</label><input type="text" id="mediaTagsInput" placeholder="animals, beginner, vocabulary"></div>
           <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="mediaPublishedInput" checked style="width:auto;"> Published (visible to students)</label></div>
-          <button class="btn btn-primary" id="mediaUploadBtn">Upload</button>
+          <button class="btn btn-primary" id="mediaUploadBtn">Add resource</button>
         </div>
         <div class="media-toolbar">
           <input type="text" class="media-search-input" id="adminMediaSearchInput" placeholder="Search media…">
@@ -148,7 +152,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="admin.js"></script>
 </body>

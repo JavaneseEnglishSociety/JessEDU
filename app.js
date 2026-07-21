@@ -487,13 +487,16 @@ function sanitizeRichHtml(html) {
   return div.innerHTML;
 }
 
-function mediaIconFor(mimeType) {
-  if (!mimeType) return "📦";
-  if (mimeType.startsWith("image/")) return "🖼️";
-  if (mimeType.startsWith("video/")) return "🎥";
-  if (mimeType.startsWith("audio/")) return "🎧";
-  if (mimeType === "application/pdf") return "📄";
-  return "📦";
+function parseMediaLink(url) {
+  const youtubeMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{6,})/);
+  if (youtubeMatch) return { type: "youtube", embedUrl: "https://www.youtube.com/embed/" + youtubeMatch[1], icon: "🎥" };
+  const driveMatch = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([a-zA-Z0-9_-]+)/);
+  if (driveMatch) return { type: "drive", embedUrl: "https://drive.google.com/file/d/" + driveMatch[1] + "/preview", icon: "📄" };
+  if (/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(url)) return { type: "image", embedUrl: url, icon: "🖼️" };
+  if (/\.pdf(\?.*)?$/i.test(url)) return { type: "pdf", embedUrl: url, icon: "📄" };
+  if (/\.(mp4|webm|ogg)(\?.*)?$/i.test(url)) return { type: "video", embedUrl: url, icon: "🎥" };
+  if (/\.(mp3|wav)(\?.*)?$/i.test(url)) return { type: "audio", embedUrl: url, icon: "🎧" };
+  return { type: "link", embedUrl: url, icon: "🔗" };
 }
 
 let __allMediaCache = [];
@@ -533,11 +536,12 @@ function renderMediaGrid() {
     (!search || m.title.toLowerCase().includes(search) || (m.tags || []).join(" ").toLowerCase().includes(search))
   );
   if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No resources found</h3></div>'; return; }
-  host.innerHTML = '<div class="media-grid">' + items.map(m =>
-    '<div class="media-card" data-open-media="' + m.id + '">' +
-    '<div class="media-thumb">' + (m.mimeType && m.mimeType.startsWith("image/") ? '<img src="' + escapeHtml(m.fileURL) + '" alt="">' : '<span>' + mediaIconFor(m.mimeType) + '</span>') + '</div>' +
-    '<div class="media-info"><h4>' + escapeHtml(m.title) + '</h4><span class="media-cat-label">' + escapeHtml(m.category) + '</span></div></div>'
-  ).join("") + '</div>';
+  host.innerHTML = '<div class="media-grid">' + items.map(m => {
+    const link = parseMediaLink(m.url || "");
+    return '<div class="media-card" data-open-media="' + m.id + '">' +
+      '<div class="media-thumb">' + (link.type === "image" ? '<img src="' + escapeHtml(m.url) + '" alt="">' : '<span>' + link.icon + '</span>') + '</div>' +
+      '<div class="media-info"><h4>' + escapeHtml(m.title) + '</h4><span class="media-cat-label">' + escapeHtml(m.category) + '</span></div></div>';
+  }).join("") + '</div>';
   host.querySelectorAll("[data-open-media]").forEach(card =>
     card.addEventListener("click", () => openMediaViewer(items.find(m => m.id === card.getAttribute("data-open-media"))))
   );
@@ -546,21 +550,22 @@ function renderMediaGrid() {
 document.getElementById("mediaSearchInput").addEventListener("input", renderMediaGrid);
 
 function openMediaViewer(item) {
+  const link = parseMediaLink(item.url || "");
   let bodyHtml = '<p class="eyebrow">' + escapeHtml(item.category) + '</p><h3 style="margin-bottom:14px;">' + escapeHtml(item.title) + '</h3>';
-  if (item.mimeType && item.mimeType.startsWith("image/")) {
-    bodyHtml += '<img src="' + escapeHtml(item.fileURL) + '" style="width:100%; border-radius:12px;" alt="">';
-  } else if (item.mimeType && item.mimeType.startsWith("video/")) {
-    bodyHtml += '<video src="' + escapeHtml(item.fileURL) + '" controls style="width:100%; border-radius:12px;"></video>';
-  } else if (item.mimeType && item.mimeType.startsWith("audio/")) {
-    bodyHtml += '<audio src="' + escapeHtml(item.fileURL) + '" controls style="width:100%;"></audio>';
-  } else if (item.mimeType === "application/pdf") {
-    bodyHtml += '<iframe class="media-viewer-frame" src="' + escapeHtml(item.fileURL) + '" id="mediaPdfFrame"></iframe>';
+  if (link.type === "image") {
+    bodyHtml += '<img src="' + escapeHtml(item.url) + '" style="width:100%; border-radius:12px;" alt="">';
+  } else if (link.type === "video") {
+    bodyHtml += '<video src="' + escapeHtml(item.url) + '" controls style="width:100%; border-radius:12px;"></video>';
+  } else if (link.type === "audio") {
+    bodyHtml += '<audio src="' + escapeHtml(item.url) + '" controls style="width:100%;"></audio>';
+  } else if (link.type === "pdf" || link.type === "drive" || link.type === "youtube") {
+    bodyHtml += '<iframe class="media-viewer-frame" src="' + escapeHtml(link.embedUrl) + '" id="mediaPdfFrame" allow="autoplay; encrypted-media; fullscreen"></iframe>';
   } else {
-    bodyHtml += '<p style="color:var(--ink-soft);">Preview isn\'t available for this file type.</p>';
+    bodyHtml += '<p style="color:var(--ink-soft);">Preview isn\'t available inline for this link — open it directly instead.</p>';
   }
   bodyHtml += '<div class="media-viewer-actions">' +
-    (item.mimeType === "application/pdf" ? '<button class="btn btn-secondary btn-sm" id="mediaFullscreenBtn">Fullscreen</button>' : '') +
-    '<a class="btn btn-primary btn-sm" href="' + escapeHtml(item.fileURL) + '" target="_blank" rel="noopener">Download</a></div>';
+    (link.type === "pdf" || link.type === "drive" ? '<button class="btn btn-secondary btn-sm" id="mediaFullscreenBtn">Fullscreen</button>' : '') +
+    '<a class="btn btn-primary btn-sm" href="' + escapeHtml(item.url) + '" target="_blank" rel="noopener">Open</a></div>';
 
   openModal(bodyHtml, () => {
     const fsBtn = document.getElementById("mediaFullscreenBtn");

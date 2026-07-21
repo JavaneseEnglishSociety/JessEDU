@@ -21,7 +21,6 @@ firebase.initializeApp(firebaseConfig);
 // Shared handles used throughout app.js / admin.js
 const auth = firebase.auth();
 const db = firebase.firestore();
-const storage = firebase.storage();
 
 // Fixed admin identity — must match isAdmin() in firestore.rules exactly.
 const ADMIN_EMAIL = "begawanbillykurniawan@gmail.com";

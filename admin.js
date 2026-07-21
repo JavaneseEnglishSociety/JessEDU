@@ -397,17 +397,24 @@ function createRichTextEditor(container, initialHtml) {
 }
 
 /* ---------------------------------------------------------
-   6c. Media Library (admin)
+   6c. Media Library (admin) — link-based, no Cloud Storage
+   (Firebase now requires the paid Blaze plan for Storage, even
+   at zero usage, so resources are external links instead:
+   Google Drive, YouTube, or any direct file URL. The file stays
+   wherever the admin hosted it — this collection just indexes it.)
    --------------------------------------------------------- */
 const MEDIA_CATEGORIES = ["Images", "Videos", "Audio", "Presentations", "Worksheets", "Icons", "Other"];
 
-function mediaIconFor(mimeType) {
-  if (!mimeType) return "📦";
-  if (mimeType.startsWith("image/")) return "🖼️";
-  if (mimeType.startsWith("video/")) return "🎥";
-  if (mimeType.startsWith("audio/")) return "🎧";
-  if (mimeType === "application/pdf") return "📄";
-  return "📦";
+function parseMediaLink(url) {
+  const youtubeMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{6,})/);
+  if (youtubeMatch) return { type: "youtube", embedUrl: "https://www.youtube.com/embed/" + youtubeMatch[1], icon: "🎥" };
+  const driveMatch = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([a-zA-Z0-9_-]+)/);
+  if (driveMatch) return { type: "drive", embedUrl: "https://drive.google.com/file/d/" + driveMatch[1] + "/preview", icon: "📄" };
+  if (/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i.test(url)) return { type: "image", embedUrl: url, icon: "🖼️" };
+  if (/\.pdf(\?.*)?$/i.test(url)) return { type: "pdf", embedUrl: url, icon: "📄" };
+  if (/\.(mp4|webm|ogg)(\?.*)?$/i.test(url)) return { type: "video", embedUrl: url, icon: "🎥" };
+  if (/\.(mp3|wav)(\?.*)?$/i.test(url)) return { type: "audio", embedUrl: url, icon: "🎧" };
+  return { type: "link", embedUrl: url, icon: "🔗" };
 }
 
 let __adminAllMedia = [];
@@ -456,11 +463,12 @@ function renderAdminMediaGrid() {
     (!search || m.title.toLowerCase().includes(search) || (m.tags || []).join(" ").toLowerCase().includes(search))
   );
   if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No media found</h3></div>'; return; }
-  host.innerHTML = '<div class="media-grid">' + items.map(m =>
-    '<div class="media-card" data-open-media="' + m.id + '">' +
-    '<div class="media-thumb">' + (m.mimeType && m.mimeType.startsWith("image/") ? '<img src="' + escapeAttr(m.fileURL) + '" alt="">' : '<span>' + mediaIconFor(m.mimeType) + '</span>') + '</div>' +
-    '<div class="media-info"><h4>' + escapeHtml(m.title) + '</h4><span class="media-cat-label">' + escapeHtml(m.category) + (m.published ? "" : " · draft") + '</span></div></div>'
-  ).join("") + '</div>';
+  host.innerHTML = '<div class="media-grid">' + items.map(m => {
+    const link = parseMediaLink(m.url || "");
+    return '<div class="media-card" data-open-media="' + m.id + '">' +
+      '<div class="media-thumb">' + (link.type === "image" ? '<img src="' + escapeAttr(m.url) + '" alt="">' : '<span>' + link.icon + '</span>') + '</div>' +
+      '<div class="media-info"><h4>' + escapeHtml(m.title) + '</h4><span class="media-cat-label">' + escapeHtml(m.category) + (m.published ? "" : " · draft") + '</span></div></div>';
+  }).join("") + '</div>';
   host.querySelectorAll("[data-open-media]").forEach(card =>
     card.addEventListener("click", () => openAdminMediaEditor(items.find(m => m.id === card.getAttribute("data-open-media"))))
   );
@@ -471,70 +479,70 @@ document.getElementById("adminMediaSearchInput").addEventListener("input", rende
 document.getElementById("mediaUploadBtn").addEventListener("click", async () => {
   const alertHost = document.getElementById("mediaUploadAlert");
   renderAlert(alertHost, "");
-  const fileInput = document.getElementById("mediaFileInput");
-  const file = fileInput.files[0];
+  const url = document.getElementById("mediaUrlInput").value.trim();
   const title = document.getElementById("mediaTitleInput").value.trim();
   const category = document.getElementById("mediaCategoryInput").value;
   const tags = document.getElementById("mediaTagsInput").value.split(",").map(t => t.trim()).filter(Boolean);
   const published = document.getElementById("mediaPublishedInput").checked;
-  if (!file) { renderAlert(alertHost, "Choose a file first."); return; }
+  if (!url) { renderAlert(alertHost, "Paste a link first."); return; }
+  if (!/^https?:\/\//i.test(url)) { renderAlert(alertHost, "That doesn't look like a valid link (must start with http:// or https://)."); return; }
   if (!title) { renderAlert(alertHost, "Title is required."); return; }
 
   const btn = document.getElementById("mediaUploadBtn");
   setBtnLoading(btn, true);
   try {
-    const storagePath = "media/" + category + "/" + Date.now() + "_" + file.name;
-    const ref = storage.ref(storagePath);
-    await ref.put(file);
-    const fileURL = await ref.getDownloadURL();
+    const link = parseMediaLink(url);
     await db.collection("media").add({
       title, category, tags, published,
-      fileURL, fileName: file.name, mimeType: file.type || "", storagePath,
+      url, linkType: link.type,
       createdAtMs: Date.now(),
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
-    showToast("Media uploaded.", "success");
-    fileInput.value = "";
+    showToast("Resource added.", "success");
+    document.getElementById("mediaUrlInput").value = "";
     document.getElementById("mediaTitleInput").value = "";
     document.getElementById("mediaTagsInput").value = "";
     refreshAdminMediaGrid();
   } catch (err) {
     renderAlert(alertHost, describeFirebaseError(err));
   } finally {
-    setBtnLoading(btn, false, "Upload");
+    setBtnLoading(btn, false, "Add resource");
   }
 });
 
 function openAdminMediaEditor(item) {
   openAdminModal(
-    '<h3 style="margin-bottom:16px;">Edit media</h3><div id="mediaEditAlert"></div>' +
+    '<h3 style="margin-bottom:16px;">Edit resource</h3><div id="mediaEditAlert"></div>' +
+    '<div class="field"><label>Link</label><input type="text" id="mediaEditUrl" value="' + escapeAttr(item.url || "") + '"></div>' +
     '<div class="field"><label>Title</label><input type="text" id="mediaEditTitle" value="' + escapeAttr(item.title) + '"></div>' +
     '<div class="field"><label>Category</label><select id="mediaEditCategory">' +
     MEDIA_CATEGORIES.map(c => '<option value="' + c + '" ' + (item.category === c ? "selected" : "") + '>' + c + '</option>').join("") + '</select></div>' +
     '<div class="field"><label>Tags (comma separated)</label><input type="text" id="mediaEditTags" value="' + escapeAttr((item.tags || []).join(", ")) + '"></div>' +
     '<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="mediaEditPublished" ' + (item.published ? "checked" : "") + ' style="width:auto;"> Published</label></div>' +
-    '<div style="display:flex; gap:8px;"><button class="btn btn-primary" id="mediaEditSaveBtn">Save</button><button class="btn btn-danger" id="mediaEditDeleteBtn">Delete file</button></div>',
+    '<div style="display:flex; gap:8px;"><button class="btn btn-primary" id="mediaEditSaveBtn">Save</button><button class="btn btn-danger" id="mediaEditDeleteBtn">Remove resource</button></div>',
     () => {
       document.getElementById("mediaEditSaveBtn").addEventListener("click", async () => {
         const alertHost = document.getElementById("mediaEditAlert");
+        const newUrl = document.getElementById("mediaEditUrl").value.trim();
         try {
           await db.collection("media").doc(item.id).update({
+            url: newUrl,
+            linkType: parseMediaLink(newUrl).type,
             title: document.getElementById("mediaEditTitle").value.trim(),
             category: document.getElementById("mediaEditCategory").value,
             tags: document.getElementById("mediaEditTags").value.split(",").map(t => t.trim()).filter(Boolean),
             published: document.getElementById("mediaEditPublished").checked,
           });
-          showToast("Media updated.", "success");
+          showToast("Resource updated.", "success");
           closeAdminModal();
           refreshAdminMediaGrid();
         } catch (err) { renderAlert(alertHost, describeFirebaseError(err)); }
       });
       document.getElementById("mediaEditDeleteBtn").addEventListener("click", async () => {
-        if (!confirm("Delete this file permanently?")) return;
+        if (!confirm("Remove this resource from the library? (The file itself, if any, is untouched — this only removes the listing.)")) return;
         try {
-          await storage.ref(item.storagePath).delete();
           await db.collection("media").doc(item.id).delete();
-          showToast("Media deleted.", "success");
+          showToast("Resource removed.", "success");
           closeAdminModal();
           refreshAdminMediaGrid();
         } catch (err) { showToast(describeFirebaseError(err), "error"); }
