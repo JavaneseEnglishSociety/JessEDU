@@ -97,7 +97,7 @@ auth.onAuthStateChanged((user) => {
 /* ---------------------------------------------------------
    2. Sidebar panel switching
    --------------------------------------------------------- */
-const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "placement"];
+const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "placement", "media"];
 document.querySelectorAll("[data-admin-panel]").forEach(el => {
   el.addEventListener("click", () => {
     const panel = el.getAttribute("data-admin-panel");
@@ -109,6 +109,7 @@ document.querySelectorAll("[data-admin-panel]").forEach(el => {
     if (panel === "levels") loadLevelsPanel();
     if (panel === "activities") loadActivitiesPanel();
     if (panel === "placement") loadPlacementPanel();
+    if (panel === "media") loadMediaPanel();
   });
 });
 
@@ -276,10 +277,11 @@ function openLevelEditor(level) {
     '<div id="levelEditorAlert"></div>' +
     '<div class="field"><label>Title</label><input type="text" id="levelTitleInput" value="' + escapeAttr(level ? level.title : "") + '"></div>' +
     '<div class="field"><label>Order (lower shows first)</label><input type="number" id="levelOrderInput" value="' + (level ? level.order : 0) + '"></div>' +
-    '<div class="field"><label>Description</label><textarea id="levelDescInput" rows="3">' + escapeHtml(level ? level.description : "") + '</textarea></div>' +
+    '<div class="field"><label>Description</label><div id="levelDescRte"></div></div>' +
     '<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="levelPublishedInput" ' + (level && level.published ? "checked" : "") + ' style="width:auto;"> Published (visible to learners)</label></div>' +
     '<button class="btn btn-primary btn-block" id="saveLevelBtn">Save level</button>',
     () => {
+      const levelDescEditor = createRichTextEditor(document.getElementById("levelDescRte"), level ? level.description : "");
       document.getElementById("saveLevelBtn").addEventListener("click", async () => {
         const alertHost = document.getElementById("levelEditorAlert");
         const btn = document.getElementById("saveLevelBtn");
@@ -288,7 +290,7 @@ function openLevelEditor(level) {
         const data = {
           title,
           order: parseInt(document.getElementById("levelOrderInput").value, 10) || 0,
-          description: document.getElementById("levelDescInput").value.trim(),
+          description: levelDescEditor.getHtml(),
           published: document.getElementById("levelPublishedInput").checked,
         };
         setBtnLoading(btn, true);
@@ -317,6 +319,228 @@ async function deleteLevel(levelId) {
   } catch (err) {
     showToast(describeFirebaseError(err), "error");
   }
+}
+
+/* ---------------------------------------------------------
+   6b. Rich text editor (shared by any admin field)
+   --------------------------------------------------------- */
+function sanitizeRichHtml(html) {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  div.querySelectorAll("script, style, iframe, object, embed").forEach(el => el.remove());
+  div.querySelectorAll("*").forEach(el => {
+    [...el.attributes].forEach(attr => {
+      if (/^on/i.test(attr.name) ||
+          ((attr.name === "href" || attr.name === "src") && /^javascript:/i.test(attr.value))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return div.innerHTML;
+}
+
+function createRichTextEditor(container, initialHtml) {
+  container.innerHTML =
+    '<div class="rte-wrap"><div class="rte-toolbar">' +
+    '<button type="button" class="rte-btn" data-cmd="bold" title="Bold"><b>B</b></button>' +
+    '<button type="button" class="rte-btn" data-cmd="italic" title="Italic"><i>I</i></button>' +
+    '<button type="button" class="rte-btn" data-cmd="underline" title="Underline"><u>U</u></button>' +
+    '<div class="rte-divider"></div>' +
+    '<button type="button" class="rte-btn" data-cmd="formatBlock" data-val="H2" title="Heading">H2</button>' +
+    '<button type="button" class="rte-btn" data-cmd="formatBlock" data-val="H3" title="Subheading">H3</button>' +
+    '<button type="button" class="rte-btn" data-cmd="formatBlock" data-val="P" title="Paragraph">¶</button>' +
+    '<div class="rte-divider"></div>' +
+    '<button type="button" class="rte-btn" data-cmd="insertUnorderedList" title="Bullet list">•—</button>' +
+    '<button type="button" class="rte-btn" data-cmd="insertOrderedList" title="Numbered list">1.</button>' +
+    '<button type="button" class="rte-btn" data-cmd="formatBlock" data-val="BLOCKQUOTE" title="Quote">❝</button>' +
+    '<button type="button" class="rte-btn" data-cmd="formatBlock" data-val="PRE" title="Code block">&lt;/&gt;</button>' +
+    '<div class="rte-divider"></div>' +
+    '<button type="button" class="rte-btn" data-action="link" title="Link">🔗</button>' +
+    '<button type="button" class="rte-btn" data-action="image" title="Image URL">🖼️</button>' +
+    '<button type="button" class="rte-btn" data-action="table" title="Insert table">▦</button>' +
+    '<button type="button" class="rte-btn" data-action="callout" title="Callout box">💡</button>' +
+    '</div><div class="rte-content" contenteditable="true">' + (initialHtml || "<p></p>") + '</div></div>';
+
+  const contentEl = container.querySelector(".rte-content");
+
+  container.querySelectorAll("[data-cmd]").forEach(btn => {
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => {
+      contentEl.focus();
+      document.execCommand(btn.getAttribute("data-cmd"), false, btn.getAttribute("data-val") || null);
+    });
+  });
+  container.querySelectorAll("[data-action]").forEach(btn => {
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", () => {
+      contentEl.focus();
+      const action = btn.getAttribute("data-action");
+      if (action === "link") {
+        const url = prompt("Link URL:");
+        if (url) document.execCommand("createLink", false, url);
+      } else if (action === "image") {
+        const url = prompt("Image URL (upload it to the Media Library first, then paste its URL here):");
+        if (url) document.execCommand("insertImage", false, url);
+      } else if (action === "table") {
+        document.execCommand("insertHTML", false,
+          '<table><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></table><p></p>');
+      } else if (action === "callout") {
+        document.execCommand("insertHTML", false, '<div class="callout">💡 &nbsp;</div><p></p>');
+      }
+    });
+  });
+
+  return {
+    getHtml: () => sanitizeRichHtml(contentEl.innerHTML),
+    setHtml: (html) => { contentEl.innerHTML = html || "<p></p>"; },
+  };
+}
+
+/* ---------------------------------------------------------
+   6c. Media Library (admin)
+   --------------------------------------------------------- */
+const MEDIA_CATEGORIES = ["Images", "Videos", "Audio", "Presentations", "Worksheets", "Icons", "Other"];
+
+function mediaIconFor(mimeType) {
+  if (!mimeType) return "📦";
+  if (mimeType.startsWith("image/")) return "🖼️";
+  if (mimeType.startsWith("video/")) return "🎥";
+  if (mimeType.startsWith("audio/")) return "🎧";
+  if (mimeType === "application/pdf") return "📄";
+  return "📦";
+}
+
+let __adminAllMedia = [];
+let __adminMediaCatFilter = "all";
+
+async function loadMediaPanel() {
+  const catSelect = document.getElementById("mediaCategoryInput");
+  if (!catSelect.options.length) {
+    catSelect.innerHTML = MEDIA_CATEGORIES.map(c => '<option value="' + c + '">' + c + '</option>').join("");
+  }
+  await refreshAdminMediaGrid();
+}
+
+async function refreshAdminMediaGrid() {
+  const host = document.getElementById("adminMediaGridHost");
+  host.innerHTML = '<div class="loading-block"><span class="spinner"></span> Loading media…</div>';
+  try {
+    const snap = await db.collection("media").get();
+    __adminAllMedia = [];
+    snap.forEach(doc => __adminAllMedia.push({ id: doc.id, ...doc.data() }));
+    __adminAllMedia.sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0));
+    renderAdminMediaTabs();
+    renderAdminMediaGrid();
+  } catch (err) {
+    host.innerHTML = "";
+    renderAlert(document.getElementById("adminAlertHost"), describeFirebaseError(err), { onRetry: refreshAdminMediaGrid });
+  }
+}
+
+function renderAdminMediaTabs() {
+  const host = document.getElementById("adminMediaCatTabs");
+  const cats = ["all"].concat(MEDIA_CATEGORIES);
+  host.innerHTML = cats.map(c =>
+    '<button type="button" class="media-cat-tab ' + (c === __adminMediaCatFilter ? "active" : "") + '" data-cat="' + c + '">' + (c === "all" ? "All" : c) + '</button>'
+  ).join("");
+  host.querySelectorAll("[data-cat]").forEach(btn =>
+    btn.addEventListener("click", () => { __adminMediaCatFilter = btn.getAttribute("data-cat"); renderAdminMediaTabs(); renderAdminMediaGrid(); })
+  );
+}
+
+function renderAdminMediaGrid() {
+  const host = document.getElementById("adminMediaGridHost");
+  const search = (document.getElementById("adminMediaSearchInput").value || "").toLowerCase();
+  const items = __adminAllMedia.filter(m =>
+    (__adminMediaCatFilter === "all" || m.category === __adminMediaCatFilter) &&
+    (!search || m.title.toLowerCase().includes(search) || (m.tags || []).join(" ").toLowerCase().includes(search))
+  );
+  if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No media found</h3></div>'; return; }
+  host.innerHTML = '<div class="media-grid">' + items.map(m =>
+    '<div class="media-card" data-open-media="' + m.id + '">' +
+    '<div class="media-thumb">' + (m.mimeType && m.mimeType.startsWith("image/") ? '<img src="' + escapeAttr(m.fileURL) + '" alt="">' : '<span>' + mediaIconFor(m.mimeType) + '</span>') + '</div>' +
+    '<div class="media-info"><h4>' + escapeHtml(m.title) + '</h4><span class="media-cat-label">' + escapeHtml(m.category) + (m.published ? "" : " · draft") + '</span></div></div>'
+  ).join("") + '</div>';
+  host.querySelectorAll("[data-open-media]").forEach(card =>
+    card.addEventListener("click", () => openAdminMediaEditor(items.find(m => m.id === card.getAttribute("data-open-media"))))
+  );
+}
+
+document.getElementById("adminMediaSearchInput").addEventListener("input", renderAdminMediaGrid);
+
+document.getElementById("mediaUploadBtn").addEventListener("click", async () => {
+  const alertHost = document.getElementById("mediaUploadAlert");
+  renderAlert(alertHost, "");
+  const fileInput = document.getElementById("mediaFileInput");
+  const file = fileInput.files[0];
+  const title = document.getElementById("mediaTitleInput").value.trim();
+  const category = document.getElementById("mediaCategoryInput").value;
+  const tags = document.getElementById("mediaTagsInput").value.split(",").map(t => t.trim()).filter(Boolean);
+  const published = document.getElementById("mediaPublishedInput").checked;
+  if (!file) { renderAlert(alertHost, "Choose a file first."); return; }
+  if (!title) { renderAlert(alertHost, "Title is required."); return; }
+
+  const btn = document.getElementById("mediaUploadBtn");
+  setBtnLoading(btn, true);
+  try {
+    const storagePath = "media/" + category + "/" + Date.now() + "_" + file.name;
+    const ref = storage.ref(storagePath);
+    await ref.put(file);
+    const fileURL = await ref.getDownloadURL();
+    await db.collection("media").add({
+      title, category, tags, published,
+      fileURL, fileName: file.name, mimeType: file.type || "", storagePath,
+      createdAtMs: Date.now(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    showToast("Media uploaded.", "success");
+    fileInput.value = "";
+    document.getElementById("mediaTitleInput").value = "";
+    document.getElementById("mediaTagsInput").value = "";
+    refreshAdminMediaGrid();
+  } catch (err) {
+    renderAlert(alertHost, describeFirebaseError(err));
+  } finally {
+    setBtnLoading(btn, false, "Upload");
+  }
+});
+
+function openAdminMediaEditor(item) {
+  openAdminModal(
+    '<h3 style="margin-bottom:16px;">Edit media</h3><div id="mediaEditAlert"></div>' +
+    '<div class="field"><label>Title</label><input type="text" id="mediaEditTitle" value="' + escapeAttr(item.title) + '"></div>' +
+    '<div class="field"><label>Category</label><select id="mediaEditCategory">' +
+    MEDIA_CATEGORIES.map(c => '<option value="' + c + '" ' + (item.category === c ? "selected" : "") + '>' + c + '</option>').join("") + '</select></div>' +
+    '<div class="field"><label>Tags (comma separated)</label><input type="text" id="mediaEditTags" value="' + escapeAttr((item.tags || []).join(", ")) + '"></div>' +
+    '<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="mediaEditPublished" ' + (item.published ? "checked" : "") + ' style="width:auto;"> Published</label></div>' +
+    '<div style="display:flex; gap:8px;"><button class="btn btn-primary" id="mediaEditSaveBtn">Save</button><button class="btn btn-danger" id="mediaEditDeleteBtn">Delete file</button></div>',
+    () => {
+      document.getElementById("mediaEditSaveBtn").addEventListener("click", async () => {
+        const alertHost = document.getElementById("mediaEditAlert");
+        try {
+          await db.collection("media").doc(item.id).update({
+            title: document.getElementById("mediaEditTitle").value.trim(),
+            category: document.getElementById("mediaEditCategory").value,
+            tags: document.getElementById("mediaEditTags").value.split(",").map(t => t.trim()).filter(Boolean),
+            published: document.getElementById("mediaEditPublished").checked,
+          });
+          showToast("Media updated.", "success");
+          closeAdminModal();
+          refreshAdminMediaGrid();
+        } catch (err) { renderAlert(alertHost, describeFirebaseError(err)); }
+      });
+      document.getElementById("mediaEditDeleteBtn").addEventListener("click", async () => {
+        if (!confirm("Delete this file permanently?")) return;
+        try {
+          await storage.ref(item.storagePath).delete();
+          await db.collection("media").doc(item.id).delete();
+          showToast("Media deleted.", "success");
+          closeAdminModal();
+          refreshAdminMediaGrid();
+        } catch (err) { showToast(describeFirebaseError(err), "error"); }
+      });
+    }
+  );
 }
 
 /* ---------------------------------------------------------

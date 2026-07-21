@@ -97,6 +97,16 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // JESSEDU — media library (images, videos, audio, PDFs/decks,
+    // worksheets, icons). Files live in Storage; this doc is just
+    // searchable metadata + the download URL.
+    // ============================================================
+    match /media/{mediaId} {
+      allow read: if resource.data.published == true || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ============================================================
     // SHARED — visitor analytics for BOTH sites.
     // ============================================================
     match /analytics/{docId} {

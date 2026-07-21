@@ -186,6 +186,7 @@
       <nav class="sidebar-nav">
         <button class="sidebar-link active" data-panel="paths">🗺️ Learning path</button>
         <button class="sidebar-link" data-panel="progress">📊 My progress</button>
+        <button class="sidebar-link" data-panel="media">🗂️ Resources</button>
       </nav>
 
       <div class="sidebar-foot">
@@ -230,6 +231,15 @@
           <div id="completedList"></div>
         </div>
       </div>
+
+      <!-- Panel: media library -->
+      <div id="panelMedia" hidden>
+        <div class="media-toolbar">
+          <input type="text" class="media-search-input" id="mediaSearchInput" placeholder="Search resources…">
+        </div>
+        <div class="media-cat-tabs" id="mediaCatTabs"></div>
+        <div id="mediaGridHost"></div>
+      </div>
     </main>
   </div>
 </div>
@@ -245,6 +255,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="app.js"></script>
 </body>

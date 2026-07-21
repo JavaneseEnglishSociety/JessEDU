@@ -420,7 +420,8 @@ function renderLevelPath() {
 
     card.innerHTML =
       '<div><h4>' + escapeHtml(lvl.title || "Level " + (i + 1)) + '</h4>' +
-      '<p>' + escapeHtml(lvl.description || "") + (acts.length ? " · " + doneCount + "/" + acts.length + " activities" : "") + '</p></div>';
+      '<div class="rte-render">' + sanitizeRichHtml(lvl.description || "") + '</div>' +
+      (acts.length ? '<p style="margin-top:4px;">' + doneCount + "/" + acts.length + " activities</p>" : "") + '</div>';
 
     if (state !== "locked" && acts.length > 0) {
       const chipRow = document.createElement("div");
@@ -464,6 +465,110 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+/* ---------------------------------------------------------
+   9b. Media Library (student view)
+   --------------------------------------------------------- */
+const MEDIA_CATEGORIES = ["Images", "Videos", "Audio", "Presentations", "Worksheets", "Icons", "Other"];
+
+function sanitizeRichHtml(html) {
+  const div = document.createElement("div");
+  div.innerHTML = html || "";
+  div.querySelectorAll("script, style, iframe, object, embed").forEach(el => el.remove());
+  div.querySelectorAll("*").forEach(el => {
+    [...el.attributes].forEach(attr => {
+      if (/^on/i.test(attr.name) ||
+          ((attr.name === "href" || attr.name === "src") && /^javascript:/i.test(attr.value))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return div.innerHTML;
+}
+
+function mediaIconFor(mimeType) {
+  if (!mimeType) return "📦";
+  if (mimeType.startsWith("image/")) return "🖼️";
+  if (mimeType.startsWith("video/")) return "🎥";
+  if (mimeType.startsWith("audio/")) return "🎧";
+  if (mimeType === "application/pdf") return "📄";
+  return "📦";
+}
+
+let __allMediaCache = [];
+let __mediaCatFilter = "all";
+
+async function loadMediaLibrary() {
+  const host = document.getElementById("mediaGridHost");
+  host.innerHTML = '<div class="loading-block"><span class="spinner"></span> Loading resources…</div>';
+  try {
+    const snap = await db.collection("media").where("published", "==", true).get();
+    __allMediaCache = [];
+    snap.forEach(doc => __allMediaCache.push({ id: doc.id, ...doc.data() }));
+    renderMediaTabs();
+    renderMediaGrid();
+  } catch (err) {
+    host.innerHTML = "";
+    renderAlert(document.getElementById("dashAlertHost"), describeFirebaseError(err), { onRetry: loadMediaLibrary });
+  }
+}
+
+function renderMediaTabs() {
+  const host = document.getElementById("mediaCatTabs");
+  const cats = ["all"].concat(MEDIA_CATEGORIES);
+  host.innerHTML = cats.map(c =>
+    '<button type="button" class="media-cat-tab ' + (c === __mediaCatFilter ? "active" : "") + '" data-cat="' + c + '">' + (c === "all" ? "All" : c) + '</button>'
+  ).join("");
+  host.querySelectorAll("[data-cat]").forEach(btn =>
+    btn.addEventListener("click", () => { __mediaCatFilter = btn.getAttribute("data-cat"); renderMediaTabs(); renderMediaGrid(); })
+  );
+}
+
+function renderMediaGrid() {
+  const host = document.getElementById("mediaGridHost");
+  const search = (document.getElementById("mediaSearchInput").value || "").toLowerCase();
+  const items = __allMediaCache.filter(m =>
+    (__mediaCatFilter === "all" || m.category === __mediaCatFilter) &&
+    (!search || m.title.toLowerCase().includes(search) || (m.tags || []).join(" ").toLowerCase().includes(search))
+  );
+  if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No resources found</h3></div>'; return; }
+  host.innerHTML = '<div class="media-grid">' + items.map(m =>
+    '<div class="media-card" data-open-media="' + m.id + '">' +
+    '<div class="media-thumb">' + (m.mimeType && m.mimeType.startsWith("image/") ? '<img src="' + escapeHtml(m.fileURL) + '" alt="">' : '<span>' + mediaIconFor(m.mimeType) + '</span>') + '</div>' +
+    '<div class="media-info"><h4>' + escapeHtml(m.title) + '</h4><span class="media-cat-label">' + escapeHtml(m.category) + '</span></div></div>'
+  ).join("") + '</div>';
+  host.querySelectorAll("[data-open-media]").forEach(card =>
+    card.addEventListener("click", () => openMediaViewer(items.find(m => m.id === card.getAttribute("data-open-media"))))
+  );
+}
+
+document.getElementById("mediaSearchInput").addEventListener("input", renderMediaGrid);
+
+function openMediaViewer(item) {
+  let bodyHtml = '<p class="eyebrow">' + escapeHtml(item.category) + '</p><h3 style="margin-bottom:14px;">' + escapeHtml(item.title) + '</h3>';
+  if (item.mimeType && item.mimeType.startsWith("image/")) {
+    bodyHtml += '<img src="' + escapeHtml(item.fileURL) + '" style="width:100%; border-radius:12px;" alt="">';
+  } else if (item.mimeType && item.mimeType.startsWith("video/")) {
+    bodyHtml += '<video src="' + escapeHtml(item.fileURL) + '" controls style="width:100%; border-radius:12px;"></video>';
+  } else if (item.mimeType && item.mimeType.startsWith("audio/")) {
+    bodyHtml += '<audio src="' + escapeHtml(item.fileURL) + '" controls style="width:100%;"></audio>';
+  } else if (item.mimeType === "application/pdf") {
+    bodyHtml += '<iframe class="media-viewer-frame" src="' + escapeHtml(item.fileURL) + '" id="mediaPdfFrame"></iframe>';
+  } else {
+    bodyHtml += '<p style="color:var(--ink-soft);">Preview isn\'t available for this file type.</p>';
+  }
+  bodyHtml += '<div class="media-viewer-actions">' +
+    (item.mimeType === "application/pdf" ? '<button class="btn btn-secondary btn-sm" id="mediaFullscreenBtn">Fullscreen</button>' : '') +
+    '<a class="btn btn-primary btn-sm" href="' + escapeHtml(item.fileURL) + '" target="_blank" rel="noopener">Download</a></div>';
+
+  openModal(bodyHtml, () => {
+    const fsBtn = document.getElementById("mediaFullscreenBtn");
+    if (fsBtn) fsBtn.addEventListener("click", () => {
+      const frame = document.getElementById("mediaPdfFrame");
+      if (frame.requestFullscreen) frame.requestFullscreen();
+    });
+  });
 }
 
 /* ---------------------------------------------------------
@@ -740,10 +845,14 @@ document.querySelectorAll("[data-panel]").forEach(el => {
     const panel = el.getAttribute("data-panel");
     document.getElementById("panelPaths").hidden = panel !== "paths";
     document.getElementById("panelProgress").hidden = panel !== "progress";
-    document.getElementById("dashPanelTitle").textContent = panel === "paths" ? "Your path to fluent English" : "My progress";
-    document.getElementById("dashPanelEyebrow").textContent = panel === "paths" ? "Learning path" : "Progress";
+    document.getElementById("panelMedia").hidden = panel !== "media";
+    document.getElementById("dashPanelTitle").textContent =
+      panel === "paths" ? "Your path to fluent English" : panel === "progress" ? "My progress" : "Resources";
+    document.getElementById("dashPanelEyebrow").textContent =
+      panel === "paths" ? "Learning path" : panel === "progress" ? "Progress" : "Media Library";
     if (panel === "progress") renderCompletedList();
-    __presencePage = panel === "paths" ? "dashboard" : "progress";
+    if (panel === "media") loadMediaLibrary();
+    __presencePage = panel === "paths" ? "dashboard" : panel;
   });
 });
 

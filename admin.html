@@ -45,6 +45,7 @@
         <button class="sidebar-link" data-admin-panel="levels">🗺️ Levels</button>
         <button class="sidebar-link" data-admin-panel="activities">🧩 Activities</button>
         <button class="sidebar-link" data-admin-panel="placement">📍 Placement quiz</button>
+        <button class="sidebar-link" data-admin-panel="media">🗂️ Media Library</button>
       </nav>
       <div class="sidebar-foot">
         <button class="sidebar-link" id="adminLogoutBtn">🚪 Log out</button>
@@ -117,6 +118,26 @@
         <div id="placementListHost"></div>
         <button class="btn btn-primary" id="savePlacementBtn" style="margin-top:16px;">Save placement quiz</button>
       </section>
+
+      <!-- Media Library -->
+      <section id="adminPanelMedia" hidden>
+        <div class="dash-header"><div><p class="eyebrow">Media Library</p><h2 style="margin:0;">Upload &amp; manage media</h2></div></div>
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="margin-bottom:14px;">Upload new file</h3>
+          <div id="mediaUploadAlert"></div>
+          <div class="field"><label>File</label><input type="file" id="mediaFileInput"></div>
+          <div class="field"><label>Title</label><input type="text" id="mediaTitleInput"></div>
+          <div class="field"><label>Category</label><select id="mediaCategoryInput"></select></div>
+          <div class="field"><label>Tags (comma separated)</label><input type="text" id="mediaTagsInput" placeholder="animals, beginner, vocabulary"></div>
+          <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="mediaPublishedInput" checked style="width:auto;"> Published (visible to students)</label></div>
+          <button class="btn btn-primary" id="mediaUploadBtn">Upload</button>
+        </div>
+        <div class="media-toolbar">
+          <input type="text" class="media-search-input" id="adminMediaSearchInput" placeholder="Search media…">
+        </div>
+        <div class="media-cat-tabs" id="adminMediaCatTabs"></div>
+        <div id="adminMediaGridHost"></div>
+      </section>
     </main>
   </div>
 </div>
@@ -127,6 +148,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-storage-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script src="admin.js"></script>
 </body>

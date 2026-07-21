@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Media Library files (images, video, audio, PDFs/presentations,
+    // worksheets, icons). Publicly downloadable — that's the point,
+    // free resources for every learner. Only the admin can upload,
+    // replace, or remove one.
+    match /media/{category}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+                   && request.auth.token.email == "begawanbillykurniawan@gmail.com";
+    }
+  }
+}
