@@ -39,16 +39,17 @@ service cloud.firestore {
     }
 
     // A learner's profile. Created once with fixed starting values.
-    // Updates are allowed ONLY for finishing an activity: xp must go up
-    // by exactly XP_PER_ACTIVITY (10) and jessPoints by exactly
-    // JESS_POINTS_PER_ACTIVITY (5) — the same fixed amounts app.js uses
-    // — so a learner can't grant themselves an arbitrary XP total from
-    // the browser console. level/streak aren't tied to a real
-    // unlock/reward (cosmetic only), so they're just constrained to
-    // "a non-decreasing number", not exact-matched — enforcing the true
-    // level formula in rules language isn't practical without a server.
-    // This is a best-effort limit, not the same guarantee Cloud
-    // Functions would give — flagged here on purpose.
+    // Updates are allowed ONLY for finishing an activity: xp and
+    // jessPoints must both strictly increase, capped at a generous
+    // per-completion ceiling (200 XP / 100 points) — this is what
+    // makes custom per-activity EXP rewards possible while still
+    // stopping a learner from granting themselves an arbitrary XP
+    // total from the browser console. It's a looser bound than a
+    // Cloud Function could give (which could verify the exact reward
+    // against the specific activity's configured xpReward), but rules
+    // can't cross-reference "which activity triggered this write" from
+    // inside the users/{uid} path — documented trade-off, same
+    // philosophy as level/streak below.
     match /users/{uid} {
       allow read: if (request.auth != null && request.auth.uid == uid) || isAdmin();
       allow create: if request.auth != null && request.auth.uid == uid
@@ -61,8 +62,10 @@ service cloud.firestore {
       allow update: if request.auth != null && request.auth.uid == uid
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
                          ['xp', 'level', 'jessPoints', 'streak', 'lastActiveDate'])
-                    && request.resource.data.xp == resource.data.xp + 10
-                    && request.resource.data.jessPoints == resource.data.jessPoints + 5
+                    && request.resource.data.xp > resource.data.xp
+                    && request.resource.data.xp <= resource.data.xp + 200
+                    && request.resource.data.jessPoints > resource.data.jessPoints
+                    && request.resource.data.jessPoints <= resource.data.jessPoints + 100
                     && request.resource.data.level is int && request.resource.data.level >= resource.data.level
                     && request.resource.data.streak is int && request.resource.data.streak >= 0;
       allow delete: if false;
@@ -72,11 +75,13 @@ service cloud.firestore {
     // immutable — this is what stops a learner from replaying the same
     // activity for repeated XP: app.js checks this doc doesn't already
     // exist (in the same transaction as the users/{uid} update above)
-    // before granting XP for it.
+    // before granting XP for it. xpEarned/pointsEarned are stored here
+    // too so the student's XP History can show what each completion
+    // actually paid out.
     match /users/{uid}/progress/{activityId} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow create: if request.auth != null && request.auth.uid == uid
-                    && request.resource.data.keys().hasOnly(['completedAt', 'score']);
+                    && request.resource.data.keys().hasOnly(['completedAt', 'score', 'xpEarned', 'pointsEarned']);
       allow update, delete: if false;
     }
 

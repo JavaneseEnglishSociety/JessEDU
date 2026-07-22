@@ -553,9 +553,14 @@ function openAdminMediaEditor(item) {
 }
 
 /* ---------------------------------------------------------
-   7. Activities CRUD (3 tailored editors)
+   7. Activities CRUD (8 tailored editors)
    --------------------------------------------------------- */
 let __adminLevelsCache = [];
+const ACTIVITY_TYPE_LABEL = {
+  quiz: "Quiz", match: "Word match", fill: "Fill in the blank", lesson: "Lesson",
+  flashcards: "Flashcards", listening: "Listening", reading: "Reading", sentenceBuilder: "Sentence builder",
+};
+const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20 };
 
 async function loadActivitiesPanel() {
   const select = document.getElementById("activityLevelSelect");
@@ -596,12 +601,16 @@ async function loadActivitiesList() {
       host.innerHTML = '<div class="empty-state"><h3>No activities in this level yet</h3><p>Use the buttons above to add one.</p></div>';
       return;
     }
-    const typeLabel = { quiz: "Quiz", match: "Word match", fill: "Fill in the blank" };
-    host.innerHTML = acts.map(a =>
-      '<div class="card"><div class="card-row">' +
-      '<div><h3 style="margin-bottom:2px;">' + escapeHtml(a.title) + ' <span class="badge ' + (a.published ? "badge-published" : "badge-draft") + '">' + (a.published ? "Published" : "Draft") + '</span></h3>' +
-      '<p style="color:var(--ink-soft); margin:0;">' + (typeLabel[a.type] || a.type) + ' · Order ' + (a.order || 0) + '</p></div>' +
-      '<div style="display:flex; gap:8px;">' +
+    host.innerHTML = acts.map((a, i) =>
+      '<div class="card" draggable="true" data-drag-act="' + a.id + '" data-drag-index="' + i + '" style="cursor:grab;">' +
+      '<div class="card-row">' +
+      '<div style="display:flex; align-items:center; gap:10px;"><span style="color:var(--ink-soft);">⠿</span><div>' +
+      '<h3 style="margin-bottom:2px;">' + escapeHtml(a.title) + ' <span class="badge ' + (a.published ? "badge-published" : "badge-draft") + '">' + (a.published ? "Published" : "Draft") + '</span>' +
+      (a.required === false ? ' <span class="badge badge-draft">Optional</span>' : ' <span class="badge badge-published">Required</span>') + '</h3>' +
+      '<p style="color:var(--ink-soft); margin:0;">' + (ACTIVITY_TYPE_LABEL[a.type] || a.type) + ' · Order ' + (a.order || 0) + ' · ⚡ ' + (a.xpReward || DEFAULT_XP_BY_TYPE[a.type] || 10) + ' EXP</p></div></div>' +
+      '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+      '<button class="btn btn-ghost btn-sm" data-preview-act="' + a.id + '">Preview</button>' +
+      '<button class="btn btn-secondary btn-sm" data-dup-act="' + a.id + '">Duplicate</button>' +
       '<button class="btn btn-secondary btn-sm" data-edit-act="' + a.id + '">Edit</button>' +
       '<button class="btn btn-danger btn-sm" data-delete-act="' + a.id + '">Delete</button>' +
       '</div></div></div>'
@@ -612,9 +621,56 @@ async function loadActivitiesList() {
     host.querySelectorAll("[data-delete-act]").forEach(btn =>
       btn.addEventListener("click", () => deleteActivity(btn.getAttribute("data-delete-act")))
     );
+    host.querySelectorAll("[data-dup-act]").forEach(btn =>
+      btn.addEventListener("click", () => duplicateActivity(acts.find(a => a.id === btn.getAttribute("data-dup-act"))))
+    );
+    host.querySelectorAll("[data-preview-act]").forEach(btn =>
+      btn.addEventListener("click", () => window.open("index.html?previewActivityId=" + btn.getAttribute("data-preview-act"), "_blank"))
+    );
+    wireDragReorder(host, "[data-drag-act]", "data-drag-act", async (orderedIds) => {
+      await Promise.all(orderedIds.map((id, i) => db.collection("activities").doc(id).update({ order: i })));
+      loadActivitiesList();
+    });
   } catch (err) {
     host.innerHTML = "";
     renderAlert(document.getElementById("adminAlertHost"), describeFirebaseError(err), { onRetry: loadActivitiesList });
+  }
+}
+
+// Generic native-HTML5 drag-and-drop reordering for a list of cards.
+// No library needed — just draggable="true" + dragstart/dragover/drop.
+// onReorder receives the new ID order and is responsible for persisting it.
+function wireDragReorder(container, itemSelector, idAttr, onReorder) {
+  let draggedId = null;
+  container.querySelectorAll(itemSelector).forEach(el => {
+    el.addEventListener("dragstart", () => { draggedId = el.getAttribute(idAttr); el.style.opacity = "0.4"; });
+    el.addEventListener("dragend", () => { el.style.opacity = "1"; });
+    el.addEventListener("dragover", (e) => e.preventDefault());
+    el.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const targetId = el.getAttribute(idAttr);
+      if (!draggedId || draggedId === targetId) return;
+      const items = Array.from(container.querySelectorAll(itemSelector));
+      const ids = items.map(x => x.getAttribute(idAttr));
+      const fromIdx = ids.indexOf(draggedId);
+      const toIdx = ids.indexOf(targetId);
+      ids.splice(toIdx, 0, ids.splice(fromIdx, 1)[0]);
+      onReorder(ids);
+    });
+  });
+}
+
+async function duplicateActivity(activity) {
+  try {
+    const clone = JSON.parse(JSON.stringify(activity));
+    delete clone.id;
+    clone.title = activity.title + " (copy)";
+    clone.published = false;
+    await db.collection("activities").add(clone);
+    showToast("Activity duplicated as a draft.", "success");
+    loadActivitiesList();
+  } catch (err) {
+    showToast(describeFirebaseError(err), "error");
   }
 }
 
@@ -633,117 +689,269 @@ function openActivityEditor(activity, forceType) {
   const isNew = !activity;
   const type = activity ? activity.type : forceType;
   const levelId = document.getElementById("activityLevelSelect").value;
+  const defaultXp = (activity && activity.xpReward) || DEFAULT_XP_BY_TYPE[type] || 10;
+  const isRowType = type === "quiz" || type === "match" || type === "fill";
 
-  const typeLabel = { quiz: "Quiz", match: "Word match", fill: "Fill in the blank" };
   let bodyHtml =
-    '<h3 style="margin-bottom:16px;">' + (isNew ? "New " + typeLabel[type] : "Edit " + typeLabel[type]) + '</h3>' +
+    '<h3 style="margin-bottom:16px;">' + (isNew ? "New " + ACTIVITY_TYPE_LABEL[type] : "Edit " + ACTIVITY_TYPE_LABEL[type]) + '</h3>' +
     '<div id="actEditorAlert"></div>' +
     '<div class="field"><label>Title</label><input type="text" id="actTitleInput" value="' + escapeAttr(activity ? activity.title : "") + '"></div>' +
-    '<div class="field"><label>Order</label><input type="number" id="actOrderInput" value="' + (activity ? activity.order : 0) + '"></div>' +
-    '<div id="actRowsHost"></div>' +
-    '<button class="btn btn-secondary btn-sm" id="addRowBtn" type="button" style="margin-bottom:16px;">+ Add ' + (type === "quiz" ? "question" : type === "match" ? "pair" : "item") + '</button>' +
-    '<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="actPublishedInput" ' + (activity && activity.published ? "checked" : "") + ' style="width:auto;"> Published (visible to learners)</label></div>' +
+    '<div class="card-row" style="gap:12px;">' +
+    '<div class="field" style="flex:1;"><label>Order</label><input type="number" id="actOrderInput" value="' + (activity ? activity.order : 0) + '"></div>' +
+    '<div class="field" style="flex:1;"><label>EXP reward</label><input type="number" id="actXpInput" min="1" max="200" value="' + defaultXp + '"></div>' +
+    '</div>' +
+    '<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="actRequiredInput" ' + (!activity || activity.required !== false ? "checked" : "") + ' style="width:auto;"> Required (student must complete this to unlock the next level)</label></div>' +
+    '<div id="actTypeBodyHost"></div>' +
+    '<div class="field" style="margin-top:12px;"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="actPublishedInput" ' + (activity && activity.published ? "checked" : "") + ' style="width:auto;"> Published (visible to learners)</label></div>' +
     '<button class="btn btn-primary btn-block" id="saveActBtn">Save activity</button>';
 
   openAdminModal(bodyHtml, () => {
-    const rowsHost = document.getElementById("actRowsHost");
-    let rows = [];
+    const typeBodyHost = document.getElementById("actTypeBodyHost");
+    let rows = [];             // quiz / match / fill
+    let blocks = [];           // lesson
+    let rteControllers = {};   // lesson (richtext/tip/warning blocks)
+    let flashcards = [];       // flashcards
+    let listeningQuestions = []; // listening / reading
+    let readingRte = null;     // reading passage editor
+    let sentences = [];        // sentenceBuilder
+    let getPayload = () => ({});
+    let validate = () => null; // returns an error string, or null if valid
 
-    if (type === "quiz") {
-      rows = activity && activity.payload && activity.payload.questions
-        ? activity.payload.questions.map(q => ({ text: q.text, options: q.options.slice(), correctIndex: q.correctIndex }))
-        : [{ text: "", options: ["", "", "", ""], correctIndex: 0 }];
-    } else if (type === "match") {
-      rows = activity && activity.payload && activity.payload.pairs
-        ? activity.payload.pairs.map(p => ({ term: p.term, definition: p.definition }))
-        : [{ term: "", definition: "" }];
-    } else {
-      rows = activity && activity.payload && activity.payload.items
-        ? activity.payload.items.map(i => ({ sentence: i.sentence, answer: i.answer }))
-        : [{ sentence: "", answer: "" }];
-    }
-
-    function renderRows() {
+    if (isRowType) {
       if (type === "quiz") {
-        rowsHost.innerHTML = rows.map((q, i) =>
-          '<div class="repeat-row" style="flex-direction:column;">' +
-          '<div style="display:flex; width:100%; gap:8px; align-items:flex-start;">' +
-          '<div class="field" style="flex:1;"><label>Question ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="text" value="' + escapeAttr(q.text) + '"></div>' +
-          '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>' +
-          [0, 1, 2, 3].map(oi =>
-            '<div class="field" style="width:100%;"><label><input type="radio" class="correct-radio" name="correct' + i + '" data-qi="' + i + '" data-oi="' + oi + '" ' + (q.correctIndex === oi ? "checked" : "") + '> Option ' + (oi + 1) + (oi === 0 ? " (select the correct one)" : "") + '</label>' +
-            '<input type="text" data-qi="' + i + '" data-oi="' + oi + '" data-f="opt" value="' + escapeAttr(q.options[oi] || "") + '"></div>'
-          ).join("") +
-          '</div>'
-        ).join("");
+        rows = activity && activity.payload && activity.payload.questions
+          ? activity.payload.questions.map(q => ({ text: q.text, options: q.options.slice(), correctIndex: q.correctIndex }))
+          : [{ text: "", options: ["", "", "", ""], correctIndex: 0 }];
       } else if (type === "match") {
-        rowsHost.innerHTML = rows.map((p, i) =>
-          '<div class="repeat-row">' +
-          '<div class="field"><label>Term ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="term" value="' + escapeAttr(p.term) + '"></div>' +
-          '<div class="field"><label>Definition</label><input type="text" data-qi="' + i + '" data-f="definition" value="' + escapeAttr(p.definition) + '"></div>' +
-          '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
-        ).join("");
+        rows = activity && activity.payload && activity.payload.pairs
+          ? activity.payload.pairs.map(p => ({ term: p.term, definition: p.definition }))
+          : [{ term: "", definition: "" }];
       } else {
-        rowsHost.innerHTML = rows.map((it, i) =>
-          '<div class="repeat-row">' +
-          '<div class="field" style="flex:2;"><label>Sentence ' + (i + 1) + ' (use ___ for the blank)</label><input type="text" data-qi="' + i + '" data-f="sentence" value="' + escapeAttr(it.sentence) + '"></div>' +
-          '<div class="field"><label>Answer</label><input type="text" data-qi="' + i + '" data-f="answer" value="' + escapeAttr(it.answer) + '"></div>' +
-          '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
-        ).join("");
+        rows = activity && activity.payload && activity.payload.items
+          ? activity.payload.items.map(i => ({ sentence: i.sentence, answer: i.answer }))
+          : [{ sentence: "", answer: "" }];
       }
 
-      rowsHost.querySelectorAll("input[type='text']").forEach(inp => {
-        inp.addEventListener("input", () => {
+      typeBodyHost.innerHTML = '<div id="actRowsHost"></div>' +
+        '<button class="btn btn-secondary btn-sm" id="addRowBtn" type="button" style="margin-bottom:16px;">+ Add ' + (type === "quiz" ? "question" : type === "match" ? "pair" : "item") + '</button>';
+      const rowsHost = document.getElementById("actRowsHost");
+
+      function renderRows() {
+        if (type === "quiz") {
+          rowsHost.innerHTML = rows.map((q, i) =>
+            '<div class="repeat-row" style="flex-direction:column;">' +
+            '<div style="display:flex; width:100%; gap:8px; align-items:flex-start;">' +
+            '<div class="field" style="flex:1;"><label>Question ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="text" value="' + escapeAttr(q.text) + '"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>' +
+            [0, 1, 2, 3].map(oi =>
+              '<div class="field" style="width:100%;"><label><input type="radio" class="correct-radio" name="correct' + i + '" data-qi="' + i + '" data-oi="' + oi + '" ' + (q.correctIndex === oi ? "checked" : "") + '> Option ' + (oi + 1) + (oi === 0 ? " (select the correct one)" : "") + '</label>' +
+              '<input type="text" data-qi="' + i + '" data-oi="' + oi + '" data-f="opt" value="' + escapeAttr(q.options[oi] || "") + '"></div>'
+            ).join("") + '</div>'
+          ).join("");
+        } else if (type === "match") {
+          rowsHost.innerHTML = rows.map((p, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field"><label>Term ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="term" value="' + escapeAttr(p.term) + '"></div>' +
+            '<div class="field"><label>Definition</label><input type="text" data-qi="' + i + '" data-f="definition" value="' + escapeAttr(p.definition) + '"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else {
+          rowsHost.innerHTML = rows.map((it, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field" style="flex:2;"><label>Sentence ' + (i + 1) + ' (use ___ for the blank)</label><input type="text" data-qi="' + i + '" data-f="sentence" value="' + escapeAttr(it.sentence) + '"></div>' +
+            '<div class="field"><label>Answer</label><input type="text" data-qi="' + i + '" data-f="answer" value="' + escapeAttr(it.answer) + '"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        }
+        rowsHost.querySelectorAll("input[type='text']").forEach(inp => inp.addEventListener("input", () => {
           const qi = parseInt(inp.getAttribute("data-qi"), 10);
           const f = inp.getAttribute("data-f");
-          if (f === "opt") {
-            const oi = parseInt(inp.getAttribute("data-oi"), 10);
-            rows[qi].options[oi] = inp.value;
-          } else {
-            rows[qi][f] = inp.value;
-          }
-        });
-      });
-      rowsHost.querySelectorAll(".correct-radio").forEach(r => {
-        r.addEventListener("change", () => {
-          const qi = parseInt(r.getAttribute("data-qi"), 10);
-          rows[qi].correctIndex = parseInt(r.getAttribute("data-oi"), 10);
-        });
-      });
-      rowsHost.querySelectorAll("[data-remove]").forEach(btn => {
-        btn.addEventListener("click", () => {
+          if (f === "opt") rows[qi].options[parseInt(inp.getAttribute("data-oi"), 10)] = inp.value;
+          else rows[qi][f] = inp.value;
+        }));
+        rowsHost.querySelectorAll(".correct-radio").forEach(r => r.addEventListener("change", () => {
+          rows[parseInt(r.getAttribute("data-qi"), 10)].correctIndex = parseInt(r.getAttribute("data-oi"), 10);
+        }));
+        rowsHost.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => {
           rows.splice(parseInt(btn.getAttribute("data-remove"), 10), 1);
           renderRows();
-        });
-      });
-    }
-    renderRows();
-
-    document.getElementById("addRowBtn").addEventListener("click", () => {
-      if (type === "quiz") rows.push({ text: "", options: ["", "", "", ""], correctIndex: 0 });
-      else if (type === "match") rows.push({ term: "", definition: "" });
-      else rows.push({ sentence: "", answer: "" });
+        }));
+      }
       renderRows();
-    });
+      document.getElementById("addRowBtn").addEventListener("click", () => {
+        if (type === "quiz") rows.push({ text: "", options: ["", "", "", ""], correctIndex: 0 });
+        else if (type === "match") rows.push({ term: "", definition: "" });
+        else rows.push({ sentence: "", answer: "" });
+        renderRows();
+      });
+
+      getPayload = () => {
+        if (type === "quiz") return { questions: rows.map(q => ({ text: q.text, options: q.options, correctIndex: q.correctIndex })) };
+        if (type === "match") return { pairs: rows.map(p => ({ term: p.term, definition: p.definition })) };
+        return { items: rows.map(it => ({ sentence: it.sentence, answer: it.answer })) };
+      };
+      validate = () => (!rows.length ? "Add at least one item." : null);
+
+    } else if (type === "lesson") {
+      blocks = activity && activity.payload && activity.payload.blocks ? JSON.parse(JSON.stringify(activity.payload.blocks)) : [];
+      typeBodyHost.innerHTML = '<div class="add-block-row">' +
+        Object.keys(BLOCK_TYPE_LABELS).map(t => '<button type="button" class="add-block-btn" data-add-block="' + t + '">+ ' + BLOCK_TYPE_LABELS[t] + '</button>').join("") +
+        '</div><div class="block-editor-list" id="actBlockEditorList"></div>';
+
+      function syncRte() {
+        Object.keys(rteControllers).forEach(i => {
+          const idx = parseInt(i, 10);
+          if (blocks[idx] && rteControllers[idx]) blocks[idx].html = rteControllers[idx].getHtml();
+        });
+      }
+      function renderBlocks() {
+        const listHost = document.getElementById("actBlockEditorList");
+        rteControllers = {};
+        if (!blocks.length) {
+          listHost.innerHTML = '<div class="empty-state"><h3>No blocks yet</h3><p>Use the buttons above to build this lesson.</p></div>';
+          return;
+        }
+        listHost.innerHTML = blocks.map((b, i) => blockEditorItemHtml(b, i)).join("");
+        blocks.forEach((b, i) => {
+          const bodyHost = listHost.querySelector('[data-block-body="' + i + '"]');
+          if (!bodyHost) return;
+          if (b.type === "richtext" || b.type === "tip" || b.type === "warning") {
+            rteControllers[i] = createRichTextEditor(bodyHost.querySelector(".rte-mount"), b.html);
+          } else if (b.type === "heading") {
+            bodyHost.querySelector(".block-heading-text").addEventListener("input", (e) => { blocks[i].text = e.target.value; });
+            bodyHost.querySelector(".block-heading-level").addEventListener("change", (e) => { blocks[i].level = e.target.value; });
+          } else if (b.type === "image") {
+            bodyHost.querySelector(".block-image-url").addEventListener("input", (e) => { blocks[i].url = e.target.value; });
+            bodyHost.querySelector(".block-image-caption").addEventListener("input", (e) => { blocks[i].caption = e.target.value; });
+          } else if (b.type === "youtube" || b.type === "slides") {
+            bodyHost.querySelector(".block-embed-url").addEventListener("input", (e) => { blocks[i].url = e.target.value; });
+          } else if (b.type === "accordion") {
+            wireAccordionBlockEditor(bodyHost, blocks[i]);
+          } else if (b.type === "quiz") {
+            wireQuizBlockEditor(bodyHost, blocks[i]);
+          }
+        });
+        listHost.querySelectorAll("[data-move-up]").forEach(btn => btn.addEventListener("click", () => {
+          syncRte();
+          const i = parseInt(btn.getAttribute("data-move-up"), 10);
+          if (i > 0) { [blocks[i - 1], blocks[i]] = [blocks[i], blocks[i - 1]]; renderBlocks(); }
+        }));
+        listHost.querySelectorAll("[data-move-down]").forEach(btn => btn.addEventListener("click", () => {
+          syncRte();
+          const i = parseInt(btn.getAttribute("data-move-down"), 10);
+          if (i < blocks.length - 1) { [blocks[i + 1], blocks[i]] = [blocks[i], blocks[i + 1]]; renderBlocks(); }
+        }));
+        listHost.querySelectorAll("[data-remove-block]").forEach(btn => btn.addEventListener("click", () => {
+          syncRte();
+          blocks.splice(parseInt(btn.getAttribute("data-remove-block"), 10), 1);
+          renderBlocks();
+        }));
+      }
+      document.querySelectorAll("[data-add-block]").forEach(btn => btn.addEventListener("click", () => {
+        syncRte();
+        blocks.push(defaultBlock(btn.getAttribute("data-add-block")));
+        renderBlocks();
+      }));
+      renderBlocks();
+
+      getPayload = () => { syncRte(); return { blocks }; };
+      validate = () => (!blocks.length ? "Add at least one block." : null);
+
+    } else if (type === "flashcards") {
+      flashcards = activity && activity.payload && activity.payload.cards
+        ? activity.payload.cards.map(c => ({ front: c.front, back: c.back }))
+        : [{ front: "", back: "" }];
+      typeBodyHost.innerHTML = '<div id="fcRowsHost"></div><button class="btn btn-secondary btn-sm" id="addFcBtn" type="button" style="margin-bottom:16px;">+ Add card</button>';
+      const fcHost = document.getElementById("fcRowsHost");
+      function renderFc() {
+        fcHost.innerHTML = flashcards.map((c, i) =>
+          '<div class="repeat-row">' +
+          '<div class="field"><label>Front ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="front" value="' + escapeAttr(c.front) + '"></div>' +
+          '<div class="field"><label>Back</label><input type="text" data-qi="' + i + '" data-f="back" value="' + escapeAttr(c.back) + '"></div>' +
+          '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+        ).join("");
+        fcHost.querySelectorAll("input").forEach(inp => inp.addEventListener("input", () => {
+          flashcards[parseInt(inp.getAttribute("data-qi"), 10)][inp.getAttribute("data-f")] = inp.value;
+        }));
+        fcHost.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => {
+          flashcards.splice(parseInt(btn.getAttribute("data-remove"), 10), 1);
+          renderFc();
+        }));
+      }
+      renderFc();
+      document.getElementById("addFcBtn").addEventListener("click", () => { flashcards.push({ front: "", back: "" }); renderFc(); });
+      getPayload = () => ({ cards: flashcards });
+      validate = () => (!flashcards.length ? "Add at least one card." : null);
+
+    } else if (type === "listening" || type === "reading") {
+      listeningQuestions = activity && activity.payload && activity.payload.questions
+        ? activity.payload.questions.map(q => ({ text: q.text, options: q.options.slice(), correctIndex: q.correctIndex }))
+        : [{ text: "", options: ["", "", "", ""], correctIndex: 0 }];
+
+      if (type === "listening") {
+        typeBodyHost.innerHTML = '<div class="field"><label>Audio link (direct URL, or a Google Drive/Dropbox direct-download link)</label><input type="text" id="listeningAudioInput" value="' + escapeAttr(activity && activity.payload ? activity.payload.audioUrl || "" : "") + '"></div>' +
+          '<h4 style="margin:16px 0 8px;">Comprehension questions</h4><div id="lrQuizWrap"><div class="quiz-block-editor-host"></div></div><button type="button" class="btn btn-ghost btn-sm" id="addLrQBtn">+ Add question</button>';
+      } else {
+        typeBodyHost.innerHTML = '<div class="field"><label>Reading passage</label><div id="readingRteMount"></div></div>' +
+          '<h4 style="margin:16px 0 8px;">Comprehension questions</h4><div id="lrQuizWrap"><div class="quiz-block-editor-host"></div></div><button type="button" class="btn btn-ghost btn-sm" id="addLrQBtn">+ Add question</button>';
+        readingRte = createRichTextEditor(document.getElementById("readingRteMount"), activity && activity.payload ? activity.payload.passageHtml : "");
+      }
+      const lrBlockShim = { questions: listeningQuestions };
+      wireQuizBlockEditor(document.getElementById("lrQuizWrap"), lrBlockShim);
+      document.getElementById("addLrQBtn").addEventListener("click", () => {
+        lrBlockShim.questions.push({ text: "", options: ["", "", "", ""], correctIndex: 0 });
+        wireQuizBlockEditor(document.getElementById("lrQuizWrap"), lrBlockShim);
+      });
+
+      getPayload = () => type === "listening"
+        ? { audioUrl: document.getElementById("listeningAudioInput").value.trim(), questions: lrBlockShim.questions }
+        : { passageHtml: readingRte.getHtml(), questions: lrBlockShim.questions };
+      validate = () => (!lrBlockShim.questions.length ? "Add at least one question." : null);
+
+    } else if (type === "sentenceBuilder") {
+      sentences = activity && activity.payload && activity.payload.sentences
+        ? activity.payload.sentences.map(s => ({ text: s.words.join(" "), alternates: (s.alternates || []).map(a => a.join(" ")).join("\n") }))
+        : [{ text: "", alternates: "" }];
+      typeBodyHost.innerHTML = '<div id="sbRowsHost"></div><button class="btn btn-secondary btn-sm" id="addSbBtn" type="button" style="margin-bottom:16px;">+ Add sentence</button>';
+      const sbHost = document.getElementById("sbRowsHost");
+      function renderSb() {
+        sbHost.innerHTML = sentences.map((s, i) =>
+          '<div class="repeat-row" style="flex-direction:column; align-items:stretch;">' +
+          '<div style="display:flex; gap:8px;"><div class="field" style="flex:1; margin-bottom:6px;"><label>Sentence ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="text" placeholder="Words in the correct order" value="' + escapeAttr(s.text) + '"></div>' +
+          '<button type="button" class="remove-row-btn" data-remove="' + i + '" style="margin-top:22px;">✕</button></div>' +
+          '<label style="font-size:0.78rem; color:var(--ink-soft); margin-bottom:4px;">Alternate accepted orders (optional, one per line)</label>' +
+          '<textarea data-qi="' + i + '" data-f="alternates" rows="2" style="width:100%; padding:8px 10px; border:1.5px solid var(--line-strong); border-radius:8px;">' + escapeHtml(s.alternates) + '</textarea></div>'
+        ).join("");
+        sbHost.querySelectorAll("[data-f='text']").forEach(inp => inp.addEventListener("input", () => { sentences[parseInt(inp.getAttribute("data-qi"), 10)].text = inp.value; }));
+        sbHost.querySelectorAll("[data-f='alternates']").forEach(ta => ta.addEventListener("input", () => { sentences[parseInt(ta.getAttribute("data-qi"), 10)].alternates = ta.value; }));
+        sbHost.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => { sentences.splice(parseInt(btn.getAttribute("data-remove"), 10), 1); renderSb(); }));
+      }
+      renderSb();
+      document.getElementById("addSbBtn").addEventListener("click", () => { sentences.push({ text: "", alternates: "" }); renderSb(); });
+
+      getPayload = () => ({
+        sentences: sentences.filter(s => s.text.trim()).map(s => ({
+          words: s.text.trim().split(/\s+/),
+          alternates: s.alternates.split("\n").map(l => l.trim()).filter(Boolean).map(l => l.split(/\s+/)),
+        })),
+      });
+      validate = () => (!sentences.some(s => s.text.trim()) ? "Add at least one sentence." : null);
+    }
 
     document.getElementById("saveActBtn").addEventListener("click", async () => {
       const alertHost = document.getElementById("actEditorAlert");
       const title = document.getElementById("actTitleInput").value.trim();
       if (!title) { renderAlert(alertHost, "Title is required."); return; }
-      if (!rows.length) { renderAlert(alertHost, "Add at least one item."); return; }
-
-      let payload;
-      if (type === "quiz") payload = { questions: rows.map(q => ({ text: q.text, options: q.options, correctIndex: q.correctIndex })) };
-      else if (type === "match") payload = { pairs: rows.map(p => ({ term: p.term, definition: p.definition })) };
-      else payload = { items: rows.map(it => ({ sentence: it.sentence, answer: it.answer })) };
+      const validationError = validate();
+      if (validationError) { renderAlert(alertHost, validationError); return; }
 
       const data = {
-        type,
-        levelId,
-        title,
+        type, levelId, title,
         order: parseInt(document.getElementById("actOrderInput").value, 10) || 0,
+        xpReward: Math.max(1, Math.min(200, parseInt(document.getElementById("actXpInput").value, 10) || defaultXp)),
+        required: document.getElementById("actRequiredInput").checked,
         published: document.getElementById("actPublishedInput").checked,
-        payload,
+        payload: getPayload(),
       };
 
       const btn = document.getElementById("saveActBtn");
@@ -830,8 +1038,10 @@ function renderLessonsList() {
   host.innerHTML = items.map(l =>
     '<div class="card"><div class="card-row">' +
     '<div><h3 style="margin-bottom:2px;">' + escapeHtml(l.title) + ' <span class="badge ' + (l.published ? "badge-published" : "badge-draft") + '">' + (l.published ? "Published" : "Draft") + '</span></h3>' +
-    '<p style="color:var(--ink-soft); margin:0;">' + escapeHtml(l.category || "") + ' · ' + escapeHtml(l.difficulty || "") + ' · ' + (l.blocks || []).length + ' blocks · ⏱️ ' + (l.estimatedMinutes || 1) + ' min</p></div>' +
-    '<div style="display:flex; gap:8px;">' +
+    '<p style="color:var(--ink-soft); margin:0;">' + escapeHtml(l.category || "") + ' · ' + escapeHtml(l.difficulty || "") + ' · ' + (l.blocks || []).length + ' blocks · ⏱️ ' + (l.estimatedMinutes || 1) + ' min · ⚡ ' + (l.xpReward || 25) + ' EXP</p></div>' +
+    '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+    '<button class="btn btn-ghost btn-sm" data-preview-lesson="' + l.id + '">Preview</button>' +
+    '<button class="btn btn-secondary btn-sm" data-dup-lesson="' + l.id + '">Duplicate</button>' +
     '<button class="btn btn-secondary btn-sm" data-edit-lesson="' + l.id + '">Edit</button>' +
     '<button class="btn btn-danger btn-sm" data-delete-lesson="' + l.id + '">Delete</button>' +
     '</div></div></div>'
@@ -842,8 +1052,28 @@ function renderLessonsList() {
   host.querySelectorAll("[data-delete-lesson]").forEach(btn =>
     btn.addEventListener("click", () => deleteLesson(btn.getAttribute("data-delete-lesson")))
   );
+  host.querySelectorAll("[data-preview-lesson]").forEach(btn =>
+    btn.addEventListener("click", () => window.open("index.html?previewLessonId=" + btn.getAttribute("data-preview-lesson"), "_blank"))
+  );
+  host.querySelectorAll("[data-dup-lesson]").forEach(btn =>
+    btn.addEventListener("click", () => duplicateLesson(__allLessonsAdminCache.find(l => l.id === btn.getAttribute("data-dup-lesson"))))
+  );
 }
 document.getElementById("adminLessonSearchInput").addEventListener("input", renderLessonsList);
+
+async function duplicateLesson(lesson) {
+  try {
+    const clone = JSON.parse(JSON.stringify(lesson));
+    delete clone.id;
+    clone.title = lesson.title + " (copy)";
+    clone.published = false;
+    await db.collection("lessons").add(clone);
+    showToast("Lesson duplicated as a draft.", "success");
+    loadLessonsPanel();
+  } catch (err) {
+    showToast(describeFirebaseError(err), "error");
+  }
+}
 document.getElementById("newLessonBtn").addEventListener("click", () => openLessonEditor(null));
 
 async function deleteLesson(id) {
@@ -879,6 +1109,7 @@ async function openLessonEditor(lesson) {
     '<div class="field"><label>Attach to a level (optional — shows a level badge, doesn\'t block access)</label><select id="lessonLevelInput"><option value="">None</option>' +
     levelsForSelect.map(lv => '<option value="' + lv.id + '" ' + (lesson && lesson.levelId === lv.id ? "selected" : "") + '>' + escapeHtml(lv.title) + '</option>').join("") + '</select></div>' +
     '<div class="field"><label>Order (lower shows first)</label><input type="number" id="lessonOrderInput" value="' + (lesson ? lesson.order || 0 : 0) + '"></div>' +
+    '<div class="field"><label>EXP reward</label><input type="number" id="lessonXpInput" min="1" max="200" value="' + (lesson && lesson.xpReward ? lesson.xpReward : 25) + '"></div>' +
     '<h4 style="margin:18px 0 8px;">Content blocks</h4>' +
     '<div class="add-block-row">' +
     Object.keys(BLOCK_TYPE_LABELS).map(t => '<button type="button" class="add-block-btn" data-add-block="' + t + '">+ ' + BLOCK_TYPE_LABELS[t] + '</button>').join("") +
@@ -964,6 +1195,7 @@ async function openLessonEditor(lesson) {
           difficulty: document.getElementById("lessonDifficultyInput").value,
           levelId: document.getElementById("lessonLevelInput").value || null,
           order: parseInt(document.getElementById("lessonOrderInput").value, 10) || 0,
+          xpReward: Math.max(1, Math.min(200, parseInt(document.getElementById("lessonXpInput").value, 10) || 25)),
           published: document.getElementById("lessonPublishedInput").checked,
           blocks,
           estimatedMinutes: computeReadingMinutesAdmin(blocks),

@@ -224,8 +224,8 @@ document.getElementById("guestFromAuthBtn").addEventListener("click", enterGuest
 /* ---------------------------------------------------------
    6. Level/XP math
    --------------------------------------------------------- */
-const XP_PER_ACTIVITY = 10;
-const JESS_POINTS_PER_ACTIVITY = 5;
+const XP_PER_ACTIVITY = 10; // fallback default for activities with no configured xpReward
+const JESS_POINTS_PER_ACTIVITY = 5; // fallback default; normally = round(xpReward / 2)
 
 function levelForXp(xp) {
   let level = 1;
@@ -245,10 +245,20 @@ function nextStreak(current, lastActiveDate) {
   return 1;
 }
 
+// Derives the JESS Points reward from an activity's XP reward (half,
+// rounded, minimum 1) so admins only ever have to set one number.
+function pointsForXp(xp) { return Math.max(1, Math.round(xp / 2)); }
+
 /* ---------------------------------------------------------
    7. Completing an activity
    --------------------------------------------------------- */
-async function completeActivity(activityId, scoreFraction) {
+async function completeActivity(activityId, scoreFraction, xpReward, itemTitle) {
+  // Clamp to the same ceiling firestore.rules enforces server-side
+  // (200 XP / 100 points per completion) so a misconfigured reward
+  // never gets silently rejected by the write rule.
+  const xp = Math.max(1, Math.min(200, xpReward != null ? xpReward : XP_PER_ACTIVITY));
+  const points = Math.max(1, Math.min(100, pointsForXp(xp)));
+
   if (auth.currentUser) {
     const uid = auth.currentUser.uid;
     const progressRef = db.collection("users").doc(uid).collection("progress").doc(activityId);
@@ -256,13 +266,17 @@ async function completeActivity(activityId, scoreFraction) {
     await db.runTransaction(async (tx) => {
       const [progressSnap, profileSnap] = await Promise.all([tx.get(progressRef), tx.get(profileRef)]);
       if (progressSnap.exists) throw Object.assign(new Error("Already completed."), { code: "already-exists" });
+      if (!profileSnap.exists) throw Object.assign(new Error("This account has no learner profile — sign up as a learner to earn XP (the admin account itself doesn't track XP)."), { code: "not-found" });
       const current = profileSnap.data();
-      const newXp = current.xp + XP_PER_ACTIVITY;
-      tx.set(progressRef, { completedAt: firebase.firestore.FieldValue.serverTimestamp(), score: scoreFraction });
+      const newXp = current.xp + xp;
+      tx.set(progressRef, {
+        completedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        score: scoreFraction, xpEarned: xp, pointsEarned: points,
+      });
       tx.update(profileRef, {
         xp: newXp,
         level: levelForXp(newXp),
-        jessPoints: current.jessPoints + JESS_POINTS_PER_ACTIVITY,
+        jessPoints: current.jessPoints + points,
         streak: nextStreak(current.streak, current.lastActiveDate),
         lastActiveDate: todayStr(),
       });
@@ -272,9 +286,9 @@ async function completeActivity(activityId, scoreFraction) {
     if (state.completed[activityId]) {
       const err = new Error("Already completed."); err.code = "already-exists"; throw err;
     }
-    state.completed[activityId] = { completedAt: Date.now(), score: scoreFraction };
-    state.xp += XP_PER_ACTIVITY;
-    state.jessPoints += JESS_POINTS_PER_ACTIVITY;
+    state.completed[activityId] = { completedAt: Date.now(), score: scoreFraction, xpEarned: xp, pointsEarned: points, title: itemTitle || "" };
+    state.xp += xp;
+    state.jessPoints += points;
     state.level = levelForXp(state.xp);
     state.streak = nextStreak(state.streak, state.lastActiveDate);
     state.lastActiveDate = todayStr();
@@ -365,27 +379,41 @@ function updateSidebarStats() {
   document.getElementById("progStreak").textContent = profile.streak;
 }
 
+function isLevelActsComplete(acts, completed) {
+  const required = acts.filter(a => a.required !== false);
+  // A level with activities but where none are marked required still
+  // needs at least the full set done, so optional-only levels aren't
+  // trivially "complete" with zero engagement.
+  const toCheck = required.length > 0 ? required : acts;
+  return toCheck.length > 0 && toCheck.every(a => completed[a.id]);
+}
+
 function levelStateFor(index) {
   const lvl = __allLevels[index];
   const acts = __activitiesByLevel[lvl.id] || [];
   const completed = getCompletedSet();
-  const doneCount = acts.filter(a => completed[a.id]).length;
-  const isComplete = acts.length > 0 && doneCount === acts.length;
+  const isComplete = isLevelActsComplete(acts, completed);
 
   if (index === 0) return isComplete ? "complete" : "available";
   const prevLvl = __allLevels[index - 1];
   const prevActs = __activitiesByLevel[prevLvl.id] || [];
-  const prevDone = prevActs.filter(a => completed[a.id]).length;
-  const prevComplete = prevActs.length > 0 && prevDone === prevActs.length;
+  const prevComplete = isLevelActsComplete(prevActs, completed);
   if (!prevComplete) return "locked";
   return isComplete ? "complete" : "available";
 }
 
 const ACTIVITY_TYPE_META = {
-  quiz: { label: "Quiz", color: "var(--leaf)" },
-  match: { label: "Word match", color: "var(--sky)" },
-  fill: { label: "Fill in the blank", color: "var(--sun)" },
+  quiz: { label: "Quiz", color: "var(--leaf)", icon: "📝" },
+  match: { label: "Word match", color: "var(--sky)", icon: "🔤" },
+  fill: { label: "Fill in the blank", color: "var(--sun)", icon: "✏️" },
+  lesson: { label: "Lesson", color: "var(--leaf-dark)", icon: "📘" },
+  flashcards: { label: "Flashcards", color: "var(--sky)", icon: "🗂️" },
+  listening: { label: "Listening", color: "var(--sun)", icon: "🎧" },
+  reading: { label: "Reading", color: "var(--leaf)", icon: "📖" },
+  sentenceBuilder: { label: "Sentence builder", color: "var(--coral)", icon: "🧩" },
 };
+const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20 };
+
 
 function renderLevelPath() {
   const host = document.getElementById("levelPathHost");
@@ -431,9 +459,10 @@ function renderLevelPath() {
         const done = !!completed[act.id];
         chip.className = "activity-chip" + (done ? " done" : "");
         chip.type = "button";
-        const meta = ACTIVITY_TYPE_META[act.type] || { label: act.type, color: "var(--ink-soft)" };
+        const meta = ACTIVITY_TYPE_META[act.type] || { label: act.type, color: "var(--ink-soft)", icon: "•" };
+        const isOptional = act.required === false;
         chip.innerHTML = '<span class="type-dot" style="background:' + meta.color + '"></span>' +
-          escapeHtml(act.title) + (done ? " ✓" : "");
+          (meta.icon || "") + " " + escapeHtml(act.title) + (isOptional ? ' <span style="opacity:0.6; font-size:0.75em;">(optional)</span>' : "") + (done ? " ✓" : "");
         chip.addEventListener("click", () => openActivityModal(act));
         chipRow.appendChild(chip);
       });
@@ -749,9 +778,10 @@ function renderInlineLessonQuiz(host, quizBlock, lesson) {
 async function markLessonComplete(lesson, scoreFraction) {
   const completed = getCompletedSet();
   if (completed[lesson.id]) { showToast("Already completed — no extra XP for a repeat.", "info"); return; }
+  const xp = lesson.xpReward || 25;
   try {
-    await completeActivity(lesson.id, scoreFraction != null ? scoreFraction : 1);
-    showToast("+" + XP_PER_ACTIVITY + " XP, +" + JESS_POINTS_PER_ACTIVITY + " JESS Points!", "success");
+    await completeActivity(lesson.id, scoreFraction != null ? scoreFraction : 1, xp, lesson.title);
+    showToast("+" + xp + " XP, +" + pointsForXp(xp) + " JESS Points!", "success");
     await refreshProfileCache();
     updateSidebarStats();
     renderLessonGrid();
@@ -808,32 +838,55 @@ function closeModal() {
   document.getElementById("modalHost").innerHTML = "";
 }
 
+function activityXpReward(activity) {
+  return activity.xpReward || DEFAULT_XP_BY_TYPE[activity.type] || XP_PER_ACTIVITY;
+}
+
 function openActivityModal(activity) {
   const completed = getCompletedSet();
   if (completed[activity.id]) {
     openModal(
-      '<div class="result-banner pass"><div class="eyebrow">Already completed</div>' +
+      '<div class="result-banner pass"><div class="eyebrow">Completed</div>' +
       '<h3>' + escapeHtml(activity.title) + '</h3>' +
       '<p style="color:var(--ink-soft)">You\'ve already earned XP for this activity.</p></div>'
     );
     return;
   }
-  if (activity.type === "quiz") runQuizActivity(activity);
-  else if (activity.type === "match") runMatchActivity(activity);
-  else if (activity.type === "fill") runFillActivity(activity);
+  const meta = ACTIVITY_TYPE_META[activity.type] || { label: activity.type, icon: "•" };
+  const xp = activityXpReward(activity);
+  openModal(
+    '<p class="eyebrow">Not started</p>' +
+    '<h3 style="margin-bottom:6px;">' + (meta.icon || "") + " " + escapeHtml(activity.title) + '</h3>' +
+    '<p style="color:var(--ink-soft); margin-bottom:18px;">' + meta.label + (activity.required === false ? " · Optional" : "") + '</p>' +
+    '<div class="alert alert-info">Completing this activity will reward <strong>' + xp + ' EXP</strong> (+' + pointsForXp(xp) + ' JESS Points).</div>' +
+    '<button class="btn btn-primary btn-block" id="activityStartBtn" style="margin-top:8px;">Start</button>',
+    () => {
+      document.getElementById("activityStartBtn").addEventListener("click", () => {
+        if (activity.type === "quiz") runQuizActivity(activity);
+        else if (activity.type === "match") runMatchActivity(activity);
+        else if (activity.type === "fill") runFillActivity(activity);
+        else if (activity.type === "lesson") runLessonActivity(activity);
+        else if (activity.type === "flashcards") runFlashcardsActivity(activity);
+        else if (activity.type === "listening") runListeningActivity(activity);
+        else if (activity.type === "reading") runReadingActivity(activity);
+        else if (activity.type === "sentenceBuilder") runSentenceBuilderActivity(activity);
+      });
+    }
+  );
 }
 
 function renderActivityResult(activity, correctCount, total) {
   const fraction = total > 0 ? correctCount / total : 0;
   const passed = fraction >= 0.6;
+  const xp = activityXpReward(activity);
   const host = document.getElementById("modalHost");
   const panel = host.querySelector(".modal-panel");
 
   const finish = async () => {
     if (!passed) { closeModal(); renderLevelPath(); return; }
     try {
-      await completeActivity(activity.id, fraction);
-      showToast("+" + XP_PER_ACTIVITY + " XP, +" + JESS_POINTS_PER_ACTIVITY + " JESS Points!", "success");
+      await completeActivity(activity.id, fraction, xp, activity.title);
+      showToast("+" + xp + " XP, +" + pointsForXp(xp) + " JESS Points!", "success");
       closeModal();
       await refreshProfileCache();
       updateSidebarStats();
@@ -849,7 +902,7 @@ function renderActivityResult(activity, correctCount, total) {
     '<div class="eyebrow">' + (passed ? "Nice work!" : "So close!") + '</div>' +
     '<div class="big-score">' + correctCount + '/' + total + '</div>' +
     '<p style="color:var(--ink-soft)">' +
-    (passed ? "You passed and earned XP for this activity." : "You need 60% correct to earn XP. Give it another try!") +
+    (passed ? "You passed and earned " + xp + " EXP for this activity." : "You need 60% correct to earn XP. Give it another try!") +
     '</p><div class="result-alert-host"></div>' +
     '<div style="display:flex; gap:10px; justify-content:center; margin-top:10px;">' +
     (passed
@@ -861,7 +914,14 @@ function renderActivityResult(activity, correctCount, total) {
   if (passed) {
     document.getElementById("resultDoneBtn").addEventListener("click", finish);
   } else {
-    document.getElementById("resultRetryBtn").addEventListener("click", () => openActivityModal(activity));
+    document.getElementById("resultRetryBtn").addEventListener("click", () => {
+      if (activity.type === "quiz") runQuizActivity(activity);
+      else if (activity.type === "match") runMatchActivity(activity);
+      else if (activity.type === "fill") runFillActivity(activity);
+      else if (activity.type === "listening") runListeningActivity(activity);
+      else if (activity.type === "reading") runReadingActivity(activity);
+      else if (activity.type === "sentenceBuilder") runSentenceBuilderActivity(activity);
+    });
     document.getElementById("resultCloseBtn").addEventListener("click", closeModal);
   }
 }
@@ -985,6 +1045,242 @@ function runFillActivity(activity) {
 }
 
 /* ---------------------------------------------------------
+   10b. New activity types: Lesson, Flashcards, Listening,
+   Reading, Sentence Builder
+   --------------------------------------------------------- */
+
+// Lesson-as-activity reuses the exact same block renderer/interactivity
+// built for the standalone Lessons library — blocks live under
+// activity.payload.blocks instead of a top-level `blocks` field, so we
+// pass a thin shim object through to the shared functions.
+function runLessonActivity(activity) {
+  const shim = {
+    id: activity.id, title: activity.title,
+    category: activity.category || "", difficulty: activity.difficulty || "",
+    estimatedMinutes: activity.estimatedMinutes || 1,
+    blocks: (activity.payload && activity.payload.blocks) || [],
+    xpReward: activityXpReward(activity),
+  };
+  openLessonViewer(shim);
+}
+
+function runFlashcardsActivity(activity) {
+  const cards = (activity.payload && activity.payload.cards) || [];
+  if (!cards.length) { closeModal(); return; }
+  let idx = 0, knewCount = 0, flipped = false;
+
+  function renderCard() {
+    const panel = document.querySelector("#modalHost .modal-panel");
+    const card = cards[idx];
+    panel.innerHTML =
+      '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
+      '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Card ' + (idx + 1) + ' of ' + cards.length + '</p>' +
+      '<div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + ((idx / cards.length) * 100) + '%"></div></div>' +
+      '<div id="flashcardFace" style="min-height:160px; border:1.5px solid var(--line-strong); border-radius:16px; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; font-family:var(--font-display); font-size:1.3rem; cursor:pointer; margin-bottom:16px;">' +
+      escapeHtml(flipped ? card.back : card.front) + '</div>' +
+      '<p style="text-align:center; color:var(--ink-soft); font-size:0.82rem; margin-bottom:16px;">Tap the card to flip it</p>' +
+      (flipped
+        ? '<div style="display:flex; gap:10px;"><button class="btn btn-secondary btn-block" id="stillLearningBtn">Still learning</button><button class="btn btn-primary btn-block" id="gotItBtn">Got it!</button></div>'
+        : "");
+
+      document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+      document.getElementById("flashcardFace").addEventListener("click", () => { flipped = !flipped; renderCard(); });
+      const gotIt = document.getElementById("gotItBtn");
+      const stillLearning = document.getElementById("stillLearningBtn");
+      if (gotIt) gotIt.addEventListener("click", () => { knewCount++; advance(); });
+      if (stillLearning) stillLearning.addEventListener("click", () => advance());
+  }
+
+  function advance() {
+    flipped = false;
+    if (idx < cards.length - 1) { idx++; renderCard(); }
+    else finishFlashcards();
+  }
+
+  async function finishFlashcards() {
+    const xp = activityXpReward(activity);
+    const panel = document.querySelector("#modalHost .modal-panel");
+    panel.innerHTML =
+      '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
+      '<div class="result-banner pass"><div class="eyebrow">Deck complete</div>' +
+      '<div class="big-score">' + knewCount + '/' + cards.length + '</div>' +
+      '<p style="color:var(--ink-soft)">You knew ' + knewCount + ' of ' + cards.length + ' cards. Review complete — claim your XP below.</p>' +
+      '<div class="result-alert-host"></div>' +
+      '<button class="btn btn-primary" id="flashcardsClaimBtn">Claim ' + xp + ' EXP</button></div>';
+    document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+    document.getElementById("flashcardsClaimBtn").addEventListener("click", async () => {
+      try {
+        await completeActivity(activity.id, knewCount / cards.length, xp, activity.title);
+        showToast("+" + xp + " EXP, +" + pointsForXp(xp) + " JESS Points!", "success");
+        closeModal();
+        await refreshProfileCache();
+        updateSidebarStats();
+        renderLevelPath();
+      } catch (err) {
+        renderAlert(panel.querySelector(".result-alert-host"), describeFirebaseError(err));
+      }
+    });
+  }
+
+  openModal("", renderCard);
+}
+
+function runListeningActivity(activity) {
+  const audioUrl = (activity.payload && activity.payload.audioUrl) || "";
+  const questions = (activity.payload && activity.payload.questions) || [];
+  let idx = -1; // -1 = the audio intro screen
+  const answers = new Array(questions.length).fill(null);
+
+  function renderStep() {
+    const panel = document.querySelector("#modalHost .modal-panel");
+    if (idx === -1) {
+      panel.innerHTML =
+        '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
+        '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Listening</p>' +
+        '<h3 style="margin-bottom:14px;">Listen, then answer the questions</h3>' +
+        '<audio src="' + escapeHtml(audioUrl) + '" controls style="width:100%; margin-bottom:18px;"></audio>' +
+        '<button class="btn btn-primary btn-block" id="listeningContinueBtn">Continue to questions</button>';
+      document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+      document.getElementById("listeningContinueBtn").addEventListener("click", () => { idx = 0; renderStep(); });
+      return;
+    }
+    const q = questions[idx];
+    panel.innerHTML =
+      '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
+      '<p class="eyebrow">Question ' + (idx + 1) + ' of ' + questions.length + '</p>' +
+      '<div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + ((idx / questions.length) * 100) + '%"></div></div>' +
+      '<div class="q-block"><div class="q-text">' + escapeHtml(q.text) + '</div><div class="opt-list">' +
+      q.options.map((opt, i) => '<label class="opt-item" data-i="' + i + '"><input type="radio" name="lqOpt"> ' + escapeHtml(opt) + '</label>').join("") +
+      '</div></div><button class="btn btn-primary btn-block" id="listeningNextBtn" disabled>' + (idx === questions.length - 1 ? "Finish" : "Next") + '</button>';
+
+    document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+    const opts = panel.querySelectorAll(".opt-item");
+    opts.forEach(opt => opt.addEventListener("click", () => {
+      opts.forEach(o => o.classList.remove("selected"));
+      opt.classList.add("selected");
+      answers[idx] = parseInt(opt.getAttribute("data-i"), 10);
+      document.getElementById("listeningNextBtn").disabled = false;
+    }));
+    document.getElementById("listeningNextBtn").addEventListener("click", () => {
+      if (idx < questions.length - 1) { idx++; renderStep(); }
+      else {
+        let correct = 0;
+        questions.forEach((qq, i) => { if (answers[i] === qq.correctIndex) correct++; });
+        renderActivityResult(activity, correct, questions.length);
+      }
+    });
+  }
+
+  openModal("", renderStep);
+}
+
+function runReadingActivity(activity) {
+  const passageHtml = (activity.payload && activity.payload.passageHtml) || "";
+  const questions = (activity.payload && activity.payload.questions) || [];
+  let idx = -1; // -1 = the passage screen
+  const answers = new Array(questions.length).fill(null);
+
+  function renderStep() {
+    const panel = document.querySelector("#modalHost .modal-panel");
+    if (idx === -1) {
+      panel.innerHTML =
+        '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
+        '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Reading</p>' +
+        '<div class="rte-render" style="margin-bottom:18px;">' + sanitizeRichHtml(passageHtml) + '</div>' +
+        '<button class="btn btn-primary btn-block" id="readingContinueBtn">Continue to questions</button>';
+      document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+      document.getElementById("readingContinueBtn").addEventListener("click", () => { idx = 0; renderStep(); });
+      return;
+    }
+    const q = questions[idx];
+    panel.innerHTML =
+      '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
+      '<p class="eyebrow">Question ' + (idx + 1) + ' of ' + questions.length + '</p>' +
+      '<div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + ((idx / questions.length) * 100) + '%"></div></div>' +
+      '<div class="q-block"><div class="q-text">' + escapeHtml(q.text) + '</div><div class="opt-list">' +
+      q.options.map((opt, i) => '<label class="opt-item" data-i="' + i + '"><input type="radio" name="rqOpt"> ' + escapeHtml(opt) + '</label>').join("") +
+      '</div></div><button class="btn btn-primary btn-block" id="readingNextBtn" disabled>' + (idx === questions.length - 1 ? "Finish" : "Next") + '</button>';
+
+    document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+    const opts = panel.querySelectorAll(".opt-item");
+    opts.forEach(opt => opt.addEventListener("click", () => {
+      opts.forEach(o => o.classList.remove("selected"));
+      opt.classList.add("selected");
+      answers[idx] = parseInt(opt.getAttribute("data-i"), 10);
+      document.getElementById("readingNextBtn").disabled = false;
+    }));
+    document.getElementById("readingNextBtn").addEventListener("click", () => {
+      if (idx < questions.length - 1) { idx++; renderStep(); }
+      else {
+        let correct = 0;
+        questions.forEach((qq, i) => { if (answers[i] === qq.correctIndex) correct++; });
+        renderActivityResult(activity, correct, questions.length);
+      }
+    });
+  }
+
+  openModal("", renderStep);
+}
+
+function runSentenceBuilderActivity(activity) {
+  const sentences = (activity.payload && activity.payload.sentences) || [];
+  let idx = 0;
+  let built = [];
+  let pool = [];
+  let correctCount = 0;
+
+  function setupSentence() {
+    built = [];
+    pool = shuffle(sentences[idx].words.map((w, i) => ({ word: w, key: i + "_" + Math.random() })));
+    renderStep();
+  }
+
+  function renderStep() {
+    const panel = document.querySelector("#modalHost .modal-panel");
+    panel.innerHTML =
+      '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
+      '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Sentence ' + (idx + 1) + ' of ' + sentences.length + '</p>' +
+      '<div class="progress-bar-track"><div class="progress-bar-fill" style="width:' + ((idx / sentences.length) * 100) + '%"></div></div>' +
+      '<h3 style="margin-bottom:10px;">Tap the words in the right order</h3>' +
+      '<div id="builtSentence" style="min-height:52px; border:1.5px dashed var(--line-strong); border-radius:12px; padding:10px; display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px;">' +
+      built.map(b => '<span class="activity-chip done" data-remove-word="' + b.key + '">' + escapeHtml(b.word) + '</span>').join("") + '</div>' +
+      '<div id="wordPool" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px;">' +
+      pool.map(p => '<button type="button" class="activity-chip" data-word-key="' + p.key + '">' + escapeHtml(p.word) + '</button>').join("") + '</div>' +
+      '<div style="display:flex; gap:10px;"><button class="btn btn-secondary" id="sbResetBtn">Reset</button>' +
+      '<button class="btn btn-primary btn-block" id="sbCheckBtn" ' + (pool.length ? "disabled" : "") + '>Check sentence</button></div>';
+
+    document.getElementById("modalCloseBtn").addEventListener("click", closeModal);
+    panel.querySelectorAll("[data-word-key]").forEach(btn => btn.addEventListener("click", () => {
+      const key = btn.getAttribute("data-word-key");
+      const wIdx = pool.findIndex(p => p.key === key);
+      if (wIdx === -1) return;
+      built.push(pool[wIdx]);
+      pool.splice(wIdx, 1);
+      renderStep();
+    }));
+    panel.querySelectorAll("[data-remove-word]").forEach(chip => chip.addEventListener("click", () => {
+      const key = chip.getAttribute("data-remove-word");
+      const bIdx = built.findIndex(b => b.key === key);
+      if (bIdx === -1) return;
+      pool.push(built[bIdx]);
+      built.splice(bIdx, 1);
+      renderStep();
+    }));
+    document.getElementById("sbResetBtn").addEventListener("click", setupSentence);
+    document.getElementById("sbCheckBtn").addEventListener("click", () => {
+      const attempt = built.map(b => b.word);
+      const candidates = [sentences[idx].words].concat(sentences[idx].alternates || []);
+      const isCorrect = candidates.some(c => c.length === attempt.length && c.every((w, i) => w === attempt[i]));
+      if (isCorrect) correctCount++;
+      if (idx < sentences.length - 1) { idx++; setupSentence(); }
+      else renderActivityResult(activity, correctCount, sentences.length);
+    });
+  }
+
+  setupSentence();
+}
+
+/* ---------------------------------------------------------
    11. Placement quiz
    --------------------------------------------------------- */
 async function maybeShowPlacementPrompt() {
@@ -1061,12 +1357,14 @@ document.querySelectorAll("[data-panel]").forEach(el => {
     document.getElementById("panelPaths").hidden = panel !== "paths";
     document.getElementById("panelLessons").hidden = panel !== "lessons";
     document.getElementById("panelProgress").hidden = panel !== "progress";
+    document.getElementById("panelHistory").hidden = panel !== "history";
     document.getElementById("panelMedia").hidden = panel !== "media";
-    const titles = { paths: "Your path to fluent English", lessons: "Lessons", progress: "My progress", media: "Resources" };
-    const eyebrows = { paths: "Learning path", lessons: "Lessons", progress: "Progress", media: "Media Library" };
+    const titles = { paths: "Your path to fluent English", lessons: "Lessons", progress: "My progress", history: "XP History", media: "Resources" };
+    const eyebrows = { paths: "Learning path", lessons: "Lessons", progress: "Progress", history: "History", media: "Media Library" };
     document.getElementById("dashPanelTitle").textContent = titles[panel] || "";
     document.getElementById("dashPanelEyebrow").textContent = eyebrows[panel] || "";
     if (panel === "progress") renderCompletedList();
+    if (panel === "history") renderXpHistory();
     if (panel === "media") loadMediaLibrary();
     if (panel === "lessons") loadLessonLibrary();
     __presencePage = panel === "paths" ? "dashboard" : panel;
@@ -1090,6 +1388,34 @@ function renderCompletedList() {
       const scoreVal = typeof rec.score === "number" ? Math.round(rec.score * 100) + "%" : "—";
       return '<tr><td>' + escapeHtml(act ? act.title : id) + '</td><td>' + escapeHtml(act ? act.type : "") + '</td><td>' + scoreVal + '</td></tr>';
     }).join("") + '</tbody></table>';
+}
+
+function renderXpHistory() {
+  const host = document.getElementById("xpHistoryList");
+  const completed = getCompletedSet();
+  const ids = Object.keys(completed);
+  if (!ids.length) {
+    host.innerHTML = '<div class="empty-state"><h3>No XP earned yet</h3><p>Complete an activity or lesson to start building your history.</p></div>';
+    return;
+  }
+  let allActs = [];
+  Object.values(__activitiesByLevel).forEach(list => allActs = allActs.concat(list));
+
+  const entries = ids.map(id => {
+    const rec = completed[id];
+    const act = allActs.find(a => a.id === id);
+    const lesson = __allLessonsCache.find(l => l.id === id);
+    const title = act ? act.title : (lesson ? lesson.title : (rec.title || id));
+    const type = act ? act.type : (lesson ? "lesson" : "");
+    const ms = rec.completedAt && rec.completedAt.toDate ? rec.completedAt.toDate().getTime() : (typeof rec.completedAt === "number" ? rec.completedAt : 0);
+    return { title, type, xp: rec.xpEarned || 0, points: rec.pointsEarned || 0, ms };
+  });
+  entries.sort((a, b) => b.ms - a.ms);
+
+  host.innerHTML = '<table class="data-table"><thead><tr><th>Activity</th><th>Type</th><th>EXP earned</th></tr></thead><tbody>' +
+    entries.map(e =>
+      '<tr><td>Completed ' + escapeHtml(e.title) + '</td><td>' + escapeHtml(e.type) + '</td><td>+' + e.xp + ' EXP' + (e.points ? ' · +' + e.points + ' JP' : '') + '</td></tr>'
+    ).join("") + '</tbody></table>';
 }
 
 /* ---------------------------------------------------------
@@ -1147,7 +1473,8 @@ auth.onAuthStateChanged(async (user) => {
       window.__jessProfileCache = snap.data();
     } catch (e) { window.__jessProfileCache = null; }
     showView("dashboard");
-    loadDashboard();
+    await loadDashboard();
+    checkPreviewParams();
   } else if (isGuestActive()) {
     __presencePage = "dashboard";
     document.getElementById("guestBanner").hidden = false;
@@ -1155,3 +1482,34 @@ auth.onAuthStateChanged(async (user) => {
     loadDashboard();
   }
 });
+
+// Admin "Preview" links open this page as index.html?previewActivityId=X
+// or ?previewLessonId=X. Firebase Auth persists the same signed-in
+// session across same-origin tabs, so if the admin is logged into
+// admin.html, this tab already has that session too — the isAdmin()
+// clause in firestore.rules is what lets a draft (unpublished) item
+// load here even though the normal published-only queries wouldn't
+// surface it. No separate preview-rendering code needed: this just
+// reuses the exact same viewer the student sees.
+async function checkPreviewParams() {
+  const params = new URLSearchParams(window.location.search);
+  const previewActivityId = params.get("previewActivityId");
+  const previewLessonId = params.get("previewLessonId");
+  try {
+    if (previewActivityId) {
+      const snap = await db.collection("activities").doc(previewActivityId).get();
+      if (snap.exists) {
+        showToast("Preview mode — this won't count toward your XP unless you complete it for real.", "info");
+        openActivityModal({ id: snap.id, ...snap.data() });
+      }
+    } else if (previewLessonId) {
+      const snap = await db.collection("lessons").doc(previewLessonId).get();
+      if (snap.exists) {
+        showToast("Preview mode — completing it here still records progress on this account.", "info");
+        openLessonViewer({ id: snap.id, ...snap.data() });
+      }
+    }
+  } catch (err) {
+    if (previewActivityId || previewLessonId) showToast("Couldn't load preview: " + describeFirebaseError(err), "error");
+  }
+}
