@@ -665,3 +665,42 @@ table.data-table tr:hover td{ background: var(--paper-dim); }
   font-size:0.82rem; cursor:pointer; color:var(--ink);
 }
 .add-block-btn:hover{ border-color:var(--leaf); background:var(--paper-dim); }
+
+/* ==========================================================================
+   JESS BRANDING — real logo in place of the old "J" letter mark
+   ========================================================================== */
+.brand-logo {
+  height: 34px; width: auto; display: inline-block;
+  vertical-align: middle; margin-right: 8px;
+}
+.brand { display: inline-flex; align-items: center; }
+@media (max-width: 600px) { .brand-logo { height: 28px; } }
+
+/* ==========================================================================
+   AI LESSON ASSISTANT — drafting panel at the top of the lesson editor
+   ========================================================================== */
+.ai-assist-panel {
+  border: 2px dashed var(--brand, #2F9E63);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  background: rgba(47, 158, 99, 0.06);
+}
+.ai-assist-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.ai-assist-head strong { font-size: 1rem; }
+.ai-assist-note { font-size: 0.82rem; opacity: 0.75; line-height: 1.4; }
+.ai-assist-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ai-assist-row input[type="text"] {
+  flex: 1; min-width: 220px; padding: 10px 12px;
+  border: 1px solid rgba(0,0,0,0.15); border-radius: 10px; font: inherit;
+}
+.ai-assist-row select {
+  padding: 10px 12px; border: 1px solid rgba(0,0,0,0.15);
+  border-radius: 10px; font: inherit; background: #fff;
+}
+.ai-assist-status { margin: 10px 0 0; font-size: 0.85rem; min-height: 1.2em; }
+.ai-assist-status.ok { color: #186A41; font-weight: 600; }
+.ai-assist-status.err { color: #B3261E; font-weight: 600; }
+@media (max-width: 640px) {
+  .ai-assist-row input[type="text"], .ai-assist-row select, .ai-assist-row .btn { width: 100%; }
+}

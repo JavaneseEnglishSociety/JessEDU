@@ -794,7 +794,29 @@ function openActivityEditor(activity, forceType) {
 
     } else if (type === "lesson") {
       blocks = activity && activity.payload && activity.payload.blocks ? JSON.parse(JSON.stringify(activity.payload.blocks)) : [];
-      typeBodyHost.innerHTML = '<div class="add-block-row">' +
+      typeBodyHost.innerHTML =
+        '<div class="ai-assist-panel">' +
+          '<div class="ai-assist-head">' +
+            '<strong>\u2728 Draft this lesson with AI</strong>' +
+            '<span class="ai-assist-note">Generates editable blocks you can rewrite or delete. Nothing is saved until you save the activity.</span>' +
+          '</div>' +
+          '<div class="ai-assist-row">' +
+            '<input type="text" id="aiTopic" placeholder="Topic, e.g. Past tense for beginners">' +
+            '<select id="aiLevel">' +
+              '<option value="complete beginner">Complete beginner</option>' +
+              '<option value="beginner" selected>Beginner</option>' +
+              '<option value="intermediate">Intermediate</option>' +
+            '</select>' +
+            '<select id="aiCount">' +
+              '<option value="4">4 blocks</option>' +
+              '<option value="6" selected>6 blocks</option>' +
+              '<option value="9">9 blocks</option>' +
+            '</select>' +
+            '<button type="button" class="btn btn-primary" id="aiGenerateBtn">Generate</button>' +
+          '</div>' +
+          '<p class="ai-assist-status" id="aiStatus"></p>' +
+        '</div>' +
+        '<div class="add-block-row">' +
         Object.keys(BLOCK_TYPE_LABELS).map(t => '<button type="button" class="add-block-btn" data-add-block="' + t + '">+ ' + BLOCK_TYPE_LABELS[t] + '</button>').join("") +
         '</div><div class="block-editor-list" id="actBlockEditorList"></div>';
 
@@ -852,6 +874,42 @@ function openActivityEditor(activity, forceType) {
         blocks.push(defaultBlock(btn.getAttribute("data-add-block")));
         renderBlocks();
       }));
+
+      // AI drafting. Generated blocks are APPENDED rather than replacing
+      // what's already there, so hitting Generate can never wipe out work
+      // the volunteer already did by hand.
+      const aiBtn = document.getElementById("aiGenerateBtn");
+      if (aiBtn) {
+        aiBtn.addEventListener("click", async () => {
+          const statusEl = document.getElementById("aiStatus");
+          const topic = document.getElementById("aiTopic").value.trim();
+          if (!topic) {
+            statusEl.className = "ai-assist-status err";
+            statusEl.textContent = "Type a topic first.";
+            return;
+          }
+          const level = document.getElementById("aiLevel").value;
+          const count = parseInt(document.getElementById("aiCount").value, 10);
+          aiBtn.disabled = true;
+          statusEl.className = "ai-assist-status";
+          statusEl.textContent = "Writing the lesson\u2026 this usually takes a few seconds.";
+          try {
+            syncRte();
+            const generated = await window.JessAI.generateLessonBlocks(topic, level, count);
+            blocks = blocks.concat(generated);
+            renderBlocks();
+            statusEl.className = "ai-assist-status ok";
+            statusEl.textContent = "Added " + generated.length + " blocks. Edit them as you like, then save the activity.";
+          } catch (err) {
+            console.warn("JessEDU: AI lesson generation failed.", err);
+            statusEl.className = "ai-assist-status err";
+            statusEl.textContent = (err && err.message) ? err.message : "Could not generate the lesson. Try again.";
+          } finally {
+            aiBtn.disabled = false;
+          }
+        });
+      }
+
       renderBlocks();
 
       getPayload = () => { syncRte(); return { blocks }; };
