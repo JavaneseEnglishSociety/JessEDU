@@ -5,20 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>JESS Admin</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Karla:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/images/favicon.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="jessMark" viewBox="0 0 48 40">
+    <rect x="2" y="14" width="26" height="8" rx="2" fill="#2F9E63" stroke="#12352A" stroke-width="2"/>
+    <rect x="1" y="24" width="30" height="9" rx="2" fill="#EFE3BE" stroke="#12352A" stroke-width="2"/>
+    <rect x="30" y="4" width="16" height="29" rx="2" fill="#2F9E63" stroke="#12352A" stroke-width="2"/>
+    <rect x="33" y="7" width="4" height="23" fill="#EFE3BE"/>
+  </symbol>
+</svg>
 
 <!-- ============================================================
      Passcode gate — full-page view, never a modal (same rule as
      the public site's auth view; see build notes §4)
      ============================================================ -->
 <div id="adminGate" class="admin-gate">
-  <div class="auth-card">
+  <div class="gate-card">
     <a href="index.html" class="back-link">&larr; Back to JESS</a>
-    <p class="eyebrow">JESS Admin</p>
+    <p class="folio">JESS Admin</p>
     <h2>Enter admin passcode</h2>
     <div id="adminGateAlert"></div>
     <form id="adminLoginForm">
@@ -26,7 +35,7 @@
         <label for="authSecret9">Passcode</label>
         <input type="text" class="pw-mask" id="authSecret9" name="authSecret9" autocomplete="off" required>
       </div>
-      <button type="submit" class="btn btn-primary btn-block" id="adminLoginBtn">
+      <button type="submit" class="btn btn-solid btn-block" id="adminLoginBtn">
         <span class="btn-label">Enter admin panel</span>
       </button>
     </form>
@@ -37,31 +46,31 @@
      Admin dashboard shell — full-page view
      ============================================================ -->
 <div id="adminDashboard" hidden>
-  <div class="dash-shell">
-    <aside class="dash-sidebar">
-      <a href="index.html" class="brand"><img src="assets/images/logo-mark.png" alt="" class="brand-logo"> JessEDU Admin</a>
-      <nav class="sidebar-nav">
-        <button class="sidebar-link active" data-admin-panel="overview">📈 Overview</button>
-        <button class="sidebar-link" data-admin-panel="learners">🧑‍🎓 Learners</button>
-        <button class="sidebar-link" data-admin-panel="levels">🗺️ Levels</button>
-        <button class="sidebar-link" data-admin-panel="activities">🧩 Activities</button>
-        <button class="sidebar-link" data-admin-panel="lessons">📘 Lessons</button>
-        <button class="sidebar-link" data-admin-panel="placement">📍 Placement quiz</button>
-        <button class="sidebar-link" data-admin-panel="media">🗂️ Media Library</button>
+  <div class="desk desk-admin">
+    <aside class="rail rail-admin">
+      <a href="index.html" class="wordmark wordmark-sm"><svg class="wordmark-mark" viewBox="0 0 48 40"><use href="#jessMark"/></svg> <span>Jess<em>EDU</em> Staff</span></a>
+      <nav class="rail-tabs">
+        <button class="rail-tab is-on" data-admin-panel="overview">📈 Overview</button>
+        <button class="rail-tab" data-admin-panel="learners">🧑‍🎓 Learners</button>
+        <button class="rail-tab" data-admin-panel="levels">🗺️ Levels</button>
+        <button class="rail-tab" data-admin-panel="activities">🧩 Activities</button>
+        <button class="rail-tab" data-admin-panel="lessons">📘 Lessons</button>
+        <button class="rail-tab" data-admin-panel="placement">📍 Placement quiz</button>
+        <button class="rail-tab" data-admin-panel="media">🗂️ Media Library</button>
       </nav>
-      <div class="sidebar-foot">
-        <button class="sidebar-link" id="adminLogoutBtn">🚪 Log out</button>
+      <div class="rail-right">
+        <button class="rail-tab" id="adminLogoutBtn">🚪 Log out</button>
       </div>
     </aside>
 
-    <main class="dash-main" style="max-width: 1080px;">
+    <main class="shell reading-area" style="max-width: 1080px;">
       <div id="adminAlertHost"></div>
 
       <!-- Overview -->
       <section id="adminPanelOverview">
-        <div class="dash-header">
-          <div><p class="eyebrow">Overview</p><h2 style="margin:0;">Live site stats</h2></div>
-          <button class="btn btn-secondary btn-sm" id="clearStaleBtn">Clear stale sessions</button>
+        <div class="area-head">
+          <div><p class="folio">Overview</p><h2 style="margin:0;">Live site stats</h2></div>
+          <button class="btn btn-outline btn-sm" id="clearStaleBtn">Clear stale sessions</button>
         </div>
         <div class="kpi-grid">
           <div class="kpi-card"><div class="kpi-num" id="kpiVisits">—</div><div class="kpi-label">Total visits</div></div>
@@ -77,22 +86,22 @@
 
       <!-- Learners -->
       <section id="adminPanelLearners" hidden>
-        <div class="dash-header"><div><p class="eyebrow">Learners</p><h2 style="margin:0;">Registered learners</h2></div></div>
+        <div class="area-head"><div><p class="folio">Learners</p><h2 style="margin:0;">Registered learners</h2></div></div>
         <div id="learnersTableHost" class="card"></div>
       </section>
 
       <!-- Levels -->
       <section id="adminPanelLevels" hidden>
-        <div class="dash-header">
-          <div><p class="eyebrow">Levels</p><h2 style="margin:0;">Manage levels</h2></div>
-          <button class="btn btn-primary" id="newLevelBtn">+ New level</button>
+        <div class="area-head">
+          <div><p class="folio">Levels</p><h2 style="margin:0;">Manage levels</h2></div>
+          <button class="btn btn-solid" id="newLevelBtn">+ New level</button>
         </div>
         <div id="levelsListHost"></div>
       </section>
 
       <!-- Activities -->
       <section id="adminPanelActivities" hidden>
-        <div class="dash-header"><div><p class="eyebrow">Activities</p><h2 style="margin:0;">Manage activities</h2></div></div>
+        <div class="area-head"><div><p class="folio">Activities</p><h2 style="margin:0;">Manage activities</h2></div></div>
         <div class="field" style="max-width:320px;">
           <label for="activityLevelSelect">Level</label>
           <select id="activityLevelSelect"></select>
@@ -100,18 +109,18 @@
         <div class="toolbar">
           <div></div>
           <div style="display:flex; gap:8px;">
-            <button class="btn btn-secondary btn-sm" data-new-activity="lesson">+ Lesson</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="quiz">+ Quiz</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="match">+ Word match</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="fill">+ Fill in the blank</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="flashcards">+ Flashcards</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="listening">+ Listening</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="reading">+ Reading</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="sentenceBuilder">+ Sentence builder</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="memoryFlip">+ Memory flip</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="wordScramble">+ Word scramble</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="speedRound">+ Speed round</button>
-            <button class="btn btn-secondary btn-sm" data-new-activity="picturePop">+ Picture pop</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="lesson">+ Lesson</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="quiz">+ Quiz</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="match">+ Word match</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="fill">+ Fill in the blank</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="flashcards">+ Flashcards</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="listening">+ Listening</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="reading">+ Reading</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="sentenceBuilder">+ Sentence builder</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="memoryFlip">+ Memory flip</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="wordScramble">+ Word scramble</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="speedRound">+ Speed round</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="picturePop">+ Picture pop</button>
           </div>
         </div>
         <div id="activitiesListHost"></div>
@@ -119,9 +128,9 @@
 
       <!-- Lessons -->
       <section id="adminPanelLessons" hidden>
-        <div class="dash-header">
-          <div><p class="eyebrow">Lessons</p><h2 style="margin:0;">Build real lesson plans</h2></div>
-          <button class="btn btn-primary" id="newLessonBtn">+ New lesson</button>
+        <div class="area-head">
+          <div><p class="folio">Lessons</p><h2 style="margin:0;">Build real lesson plans</h2></div>
+          <button class="btn btn-solid" id="newLessonBtn">+ New lesson</button>
         </div>
         <div class="lesson-filter-row">
           <input type="text" class="media-search-input" id="adminLessonSearchInput" placeholder="Search lessons…" style="flex:1; min-width:180px;">
@@ -131,20 +140,20 @@
 
       <!-- Placement quiz -->
       <section id="adminPanelPlacement" hidden>
-        <div class="dash-header">
-          <div><p class="eyebrow">Placement quiz</p><h2 style="margin:0;">Manage placement quiz</h2></div>
+        <div class="area-head">
+          <div><p class="folio">Placement quiz</p><h2 style="margin:0;">Manage placement quiz</h2></div>
           <div style="display:flex; gap:8px;">
-            <button class="btn btn-secondary btn-sm" id="loadStarterQuestionsBtn">Load starter questions</button>
-            <button class="btn btn-primary btn-sm" id="addPlacementQBtn">+ Add question</button>
+            <button class="btn btn-outline btn-sm" id="loadStarterQuestionsBtn">Load starter questions</button>
+            <button class="btn btn-solid btn-sm" id="addPlacementQBtn">+ Add question</button>
           </div>
         </div>
         <div id="placementListHost"></div>
-        <button class="btn btn-primary" id="savePlacementBtn" style="margin-top:16px;">Save placement quiz</button>
+        <button class="btn btn-solid" id="savePlacementBtn" style="margin-top:16px;">Save placement quiz</button>
       </section>
 
       <!-- Media Library -->
       <section id="adminPanelMedia" hidden>
-        <div class="dash-header"><div><p class="eyebrow">Media Library</p><h2 style="margin:0;">Add &amp; manage resources</h2></div></div>
+        <div class="area-head"><div><p class="folio">Media Library</p><h2 style="margin:0;">Add &amp; manage resources</h2></div></div>
         <div class="card" style="margin-bottom:20px;">
           <h3 style="margin-bottom:6px;">Add a resource</h3>
           <p style="color:var(--ink-soft); font-size:0.85rem; margin-bottom:14px;">
@@ -157,7 +166,7 @@
           <div class="field"><label>Category</label><select id="mediaCategoryInput"></select></div>
           <div class="field"><label>Tags (comma separated)</label><input type="text" id="mediaTagsInput" placeholder="animals, beginner, vocabulary"></div>
           <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="mediaPublishedInput" checked style="width:auto;"> Published (visible to students)</label></div>
-          <button class="btn btn-primary" id="mediaUploadBtn">Add resource</button>
+          <button class="btn btn-solid" id="mediaUploadBtn">Add resource</button>
         </div>
         <div class="media-toolbar">
           <input type="text" class="media-search-input" id="adminMediaSearchInput" placeholder="Search media…">

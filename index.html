@@ -3,146 +3,174 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JESS — Javanese English Speaking Society</title>
-<meta name="description" content="Free English lessons for every kid, everywhere. Learn English, build confidence, and grow with JESS.">
+<title>JessEDU — Free English lessons from JESS</title>
+<meta name="description" content="Free English lessons for every student. Read, practise, and grow with the Javanese English Speaking Society.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-<link rel="icon" type="image/png" href="assets/images/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,500;0,600;0,700;1,500&family=Karla:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+<!-- The mark is inline SVG rather than <img src="assets/...">. The
+     previous build pointed at a PNG that repeatedly failed to render on
+     the deployed site (missing assets folder / wrong repo), and an inline
+     SVG cannot 404, scales cleanly, and costs no extra request. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="jessMark" viewBox="0 0 48 40">
+    <rect x="2" y="14" width="26" height="8" rx="2" fill="#2F9E63" stroke="#12352A" stroke-width="2"/>
+    <rect x="1" y="24" width="30" height="9" rx="2" fill="#EFE3BE" stroke="#12352A" stroke-width="2"/>
+    <rect x="30" y="4" width="16" height="29" rx="2" fill="#2F9E63" stroke="#12352A" stroke-width="2"/>
+    <rect x="33" y="7" width="4" height="23" fill="#EFE3BE"/>
+  </symbol>
+</svg>
+
 <!-- ============================================================
-     LANDING NAV + VIEW — full-page view #1
+     VIEW 1 — LANDING
      ============================================================ -->
-<div id="landingNav">
-  <nav class="landing-nav">
-    <div class="container">
-      <a href="#" class="brand" data-nav="landing">
-        <img src="assets/images/logo-mark.png" alt="" class="brand-logo"> JessEDU
+<header id="landingNav">
+  <div class="topbar">
+    <div class="shell topbar-inner">
+      <a href="#" class="wordmark" data-nav="landing">
+        <svg class="wordmark-mark" viewBox="0 0 48 40"><use href="#jessMark"/></svg>
+        <span>Jess<em>EDU</em></span>
       </a>
-      <div class="nav-actions">
-        <button class="btn btn-ghost" data-open-auth="login">Log in</button>
-        <button class="btn btn-primary" data-open-auth="signup">Start learning</button>
-      </div>
+      <nav class="topbar-actions">
+        <button class="btn btn-plain" data-open-auth="login">Log in</button>
+        <button class="btn btn-solid" data-open-auth="signup">Start reading</button>
+      </nav>
     </div>
-  </nav>
-</div>
+  </div>
+</header>
 
-<div id="landingView">
-  <section class="hero">
-    <div class="container hero-grid">
-      <div class="hero-copy">
-        <h1>English, one step at a&nbsp;time.</h1>
-        <p class="hero-sub">Free lessons from the Javanese English Speaking Society. Start where you are, even if you have never studied English before, and climb one small step at a time.</p>
-        <div class="hero-cta">
-          <button class="btn btn-primary btn-lg" data-open-auth="signup">Start learning</button>
-          <button class="btn btn-quiet" id="guestCtaBtn">Look around first</button>
+<main id="landingView">
+  <!-- Hero: an open book spread. The left page is the pitch, the right
+       page is the table of contents, which is literally the curriculum. -->
+  <section class="spread">
+    <div class="shell spread-inner">
+      <div class="page page-left">
+        <p class="folio">Javanese English Speaking Society</p>
+        <h1>Every student deserves a first page.</h1>
+        <p class="standfirst">JessEDU is a free English library and workbook in one. Begin at the alphabet or jump in where you already are. No fees, no adverts, no ceiling on how far you go.</p>
+        <div class="cta-pair">
+          <button class="btn btn-solid btn-large" data-open-auth="signup">Start reading</button>
+          <button class="btn btn-outline btn-large" id="guestCtaBtn">Browse as a guest</button>
         </div>
-        <p class="hero-fineprint">No cost. No ads. You can try everything before making an account.</p>
+        <p class="footnote">Guest progress stays on this device. Make an account whenever you are ready to keep it.</p>
       </div>
 
-      <!-- The path is the hero: the first thing a learner sees is the
-           actual thing they will be doing, rather than a description of it. -->
-      <div class="hero-path" aria-hidden="true">
-        <ol class="path-track">
-          <li class="path-step done">
-            <span class="path-dot">A</span>
-            <span class="path-label">The alphabet</span>
+      <aside class="page page-right" aria-label="Contents">
+        <p class="contents-head">Contents</p>
+        <ol class="contents">
+          <li class="contents-row is-read">
+            <span class="contents-ch">I</span>
+            <span class="contents-title">The Alphabet</span>
+            <span class="contents-leader"></span>
+            <span class="contents-state">read</span>
           </li>
-          <li class="path-step done">
-            <span class="path-dot">1</span>
-            <span class="path-label">Numbers</span>
+          <li class="contents-row is-read">
+            <span class="contents-ch">II</span>
+            <span class="contents-title">Numbers &amp; Counting</span>
+            <span class="contents-leader"></span>
+            <span class="contents-state">read</span>
           </li>
-          <li class="path-step current">
-            <span class="path-dot">★</span>
-            <span class="path-label">Everyday words<em>you are here</em></span>
+          <li class="contents-row is-here">
+            <span class="contents-ch">III</span>
+            <span class="contents-title">Everyday Words</span>
+            <span class="contents-leader"></span>
+            <span class="contents-state">you are here</span>
           </li>
-          <li class="path-step">
-            <span class="path-dot">?</span>
-            <span class="path-label">First sentences</span>
+          <li class="contents-row">
+            <span class="contents-ch">IV</span>
+            <span class="contents-title">First Sentences</span>
+            <span class="contents-leader"></span>
+            <span class="contents-state"></span>
           </li>
-          <li class="path-step">
-            <span class="path-dot">✓</span>
-            <span class="path-label">Talking about you</span>
+          <li class="contents-row">
+            <span class="contents-ch">V</span>
+            <span class="contents-title">Talking About You</span>
+            <span class="contents-leader"></span>
+            <span class="contents-state"></span>
           </li>
         </ol>
+      </aside>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="shell">
+      <h2 class="band-title">How JessEDU works</h2>
+      <div class="column-set">
+        <article class="column">
+          <span class="column-rule"></span>
+          <h3>Find your page</h3>
+          <p>A short placement quiz puts you on the chapter that fits, so nothing is dull and nothing is impossible.</p>
+        </article>
+        <article class="column">
+          <span class="column-rule"></span>
+          <h3>Work through it</h3>
+          <p>Short lessons followed by games. Word matching, listening, scrambles, and timed rounds.</p>
+        </article>
+        <article class="column">
+          <span class="column-rule"></span>
+          <h3>Keep the streak</h3>
+          <p>Return each day, collect experience, and unlock the next chapter of the book.</p>
+        </article>
       </div>
     </div>
   </section>
 
-  <section class="section">
-    <div class="container">
-      <h2 class="section-title">How it works</h2>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <span class="feature-num">1</span>
-          <h3>Find your level</h3>
-          <p>A short quiz puts you on the step that fits you, so nothing feels too easy or too hard.</p>
-        </div>
-        <div class="feature-card">
-          <span class="feature-num">2</span>
-          <h3>Play through a lesson</h3>
-          <p>Word matching, listening, sentence building. Short games, a few minutes each.</p>
-        </div>
-        <div class="feature-card">
-          <span class="feature-num">3</span>
-          <h3>Come back tomorrow</h3>
-          <p>Keep your streak, collect XP, and watch the next step on the path unlock.</p>
-        </div>
-      </div>
+  <section class="colophon">
+    <div class="shell colophon-inner">
+      <blockquote>
+        <p>Where you were born should never decide whether you get to speak English.</p>
+        <cite>The volunteers of JESS</cite>
+      </blockquote>
+      <button class="btn btn-solid btn-large" data-open-auth="signup">Start reading</button>
     </div>
   </section>
 
-  <section class="section section-dim">
-    <div class="container closing">
-      <h2>Where you were born should not decide whether you can speak English.</h2>
-      <p>JESS is run by student volunteers across Java. Everything here is free, and it stays free.</p>
-      <button class="btn btn-primary btn-lg" data-open-auth="signup">Start learning</button>
-    </div>
-  </section>
-
-  <footer class="site-footer">
-    <div class="container footer-inner">
+  <footer class="endpaper">
+    <div class="shell endpaper-inner">
       <span>&copy; <span id="yearNow"></span> Javanese English Speaking Society</span>
-      <a href="admin.html">Admin</a>
+      <a href="admin.html">Staff</a>
     </div>
   </footer>
-</div>
+</main>
 
 <!-- ============================================================
-     AUTH VIEW — full-page view #2 (never a modal, see build notes)
+     VIEW 2 — AUTH
      ============================================================ -->
 <div id="authView" hidden>
-  <div class="auth-wrap">
-    <div class="auth-card">
-      <button class="back-link" data-nav="landing">&larr; Back to JESS</button>
-      <div class="auth-tabs">
-        <button class="auth-tab active" data-auth-tab="signup" type="button">Sign up</button>
+  <div class="gate">
+    <div class="gate-card">
+      <button class="gate-back" data-nav="landing">&larr; Back</button>
+      <svg class="gate-mark" viewBox="0 0 48 40"><use href="#jessMark"/></svg>
+      <h2 class="gate-title">Your library card</h2>
+
+      <div class="gate-switch">
+        <button class="auth-tab is-on" data-auth-tab="signup" type="button">Sign up</button>
         <button class="auth-tab" data-auth-tab="login" type="button">Log in</button>
       </div>
 
       <div id="authAlert"></div>
 
-      <!-- Sign up form -->
       <form id="signupForm">
         <div class="field">
           <label for="suUsername">Username</label>
           <input type="text" id="suUsername" name="suUsername" autocomplete="off" autocapitalize="off" spellcheck="false" required minlength="3" maxlength="20" pattern="[a-zA-Z0-9_]+">
-          <div class="field-hint">3–20 characters, letters/numbers/underscore only.</div>
+          <p class="field-note">3 to 20 characters. Letters, numbers and underscores.</p>
         </div>
         <div class="field">
           <label for="authSecret1">Password</label>
           <input type="text" class="pw-mask" id="authSecret1" name="authSecret1" autocomplete="off" required minlength="6">
-          <div class="field-hint">At least 6 characters.</div>
+          <p class="field-note">At least 6 characters.</p>
         </div>
-        <button type="submit" class="btn btn-primary btn-block" id="signupSubmitBtn">
+        <button type="submit" class="btn btn-solid btn-wide" id="signupSubmitBtn">
           <span class="btn-label">Create my account</span>
         </button>
       </form>
 
-      <!-- Log in form -->
       <form id="loginForm" hidden>
         <div class="field">
           <label for="liUsername">Username</label>
@@ -152,128 +180,123 @@
           <label for="authSecret2">Password</label>
           <input type="text" class="pw-mask" id="authSecret2" name="authSecret2" autocomplete="off" required>
         </div>
-        <button type="submit" class="btn btn-primary btn-block" id="loginSubmitBtn">
+        <button type="submit" class="btn btn-solid btn-wide" id="loginSubmitBtn">
           <span class="btn-label">Log in</span>
         </button>
       </form>
 
-      <div class="divider-or">or</div>
-      <button class="btn btn-secondary btn-block" id="guestFromAuthBtn" type="button">Continue as guest</button>
+      <p class="gate-or"><span>or</span></p>
+      <button class="btn btn-outline btn-wide" id="guestFromAuthBtn" type="button">Browse as a guest</button>
     </div>
   </div>
 </div>
 
 <!-- ============================================================
-     DASHBOARD — full-page view #3
+     VIEW 3 — THE DESK (dashboard)
+     Rebuilt around a horizontal top rail instead of the old vertical
+     sidebar: the reading area gets the full page width, which is what
+     lessons and games actually need.
      ============================================================ -->
 <div id="dashboard" hidden>
-  <div id="guestBanner" class="guest-banner" hidden>
-    <span><strong>Guest mode:</strong> your progress is only saved on this device and will be lost if you clear browser data.</span>
-    <button class="btn btn-secondary" data-open-auth="signup" id="guestBannerSignupBtn">Create a free account</button>
+  <div id="guestBanner" class="ribbon" hidden>
+    <span><strong>Guest mode.</strong> Progress is saved on this device only.</span>
+    <button class="btn btn-plain btn-small" data-open-auth="signup" id="guestBannerSignupBtn">Create an account</button>
   </div>
 
-  <div class="dash-shell">
-    <aside class="dash-sidebar">
-      <a href="#" class="brand" data-nav="landing"><img src="assets/images/logo-mark.png" alt="" class="brand-logo"> JessEDU</a>
+  <div class="desk">
+    <header class="rail">
+      <div class="shell rail-inner">
+        <a href="#" class="wordmark wordmark-sm" data-nav="landing">
+          <svg class="wordmark-mark" viewBox="0 0 48 40"><use href="#jessMark"/></svg>
+          <span>Jess<em>EDU</em></span>
+        </a>
 
-      <div class="dash-user">
-        <div class="name" id="dashUserName">Learner</div>
-        <div class="stat-pill-row">
-          <span class="stat-pill" id="dashXpPill">0 XP</span>
-          <span class="stat-pill" id="dashPointsPill">0 JP</span>
-          <span class="stat-pill" id="dashLevelPill">Lvl 1</span>
+        <nav class="rail-tabs">
+          <button class="rail-tab is-on" data-panel="paths">Chapters</button>
+          <button class="rail-tab" data-panel="lessons">Library</button>
+          <button class="rail-tab" data-panel="progress">Progress</button>
+          <button class="rail-tab" data-panel="history">Ledger</button>
+          <button class="rail-tab" data-panel="media">Resources</button>
+        </nav>
+
+        <div class="rail-right">
+          <div class="reader">
+            <span class="reader-name" id="dashUserName">Learner</span>
+            <span class="reader-streak" id="dashStreakLabel"><span class="streak-flame">🔥</span> 0 day streak</span>
+          </div>
+          <button class="btn btn-plain btn-small" id="logoutBtn">Log out</button>
         </div>
-        <div class="streak" id="dashStreakLabel"><span class="streak-flame">🔥</span> 0 day streak</div>
       </div>
+    </header>
 
-      <nav class="sidebar-nav">
-        <button class="sidebar-link active" data-panel="paths">🗺️ Learning path</button>
-        <button class="sidebar-link" data-panel="lessons">📘 Lessons</button>
-        <button class="sidebar-link" data-panel="progress">📊 My progress</button>
-        <button class="sidebar-link" data-panel="history">🕒 XP History</button>
-        <button class="sidebar-link" data-panel="media">🗂️ Resources</button>
-      </nav>
+    <div class="shell tally-strip">
+      <span class="tally" id="dashXpPill">0 XP</span>
+      <span class="tally" id="dashPointsPill">0 JP</span>
+      <span class="tally" id="dashLevelPill">Lvl 1</span>
+    </div>
 
-      <div class="sidebar-foot">
-        <button class="sidebar-link" id="logoutBtn">🚪 Log out</button>
-      </div>
-    </aside>
-
-    <main class="dash-main">
-      <div class="dash-header">
-        <div>
-          <p class="eyebrow" id="dashPanelEyebrow">Learning path</p>
-          <h2 id="dashPanelTitle" style="margin:0;">Your path to fluent English</h2>
-        </div>
+    <main class="shell reading-area">
+      <div class="area-head">
+        <p class="folio" id="dashPanelEyebrow">Chapters</p>
+        <h2 id="dashPanelTitle">Your book so far</h2>
       </div>
 
       <div id="dashAlertHost"></div>
 
-      <!-- Placement quiz prompt -->
-      <div class="placement-card" id="placementCard" hidden>
+      <div class="prompt-card" id="placementCard" hidden>
         <div>
-          <h3>Not sure where to start?</h3>
-          <p>Take the 2-minute placement quiz and we'll suggest the right level for you.</p>
+          <h3>Not sure where to begin?</h3>
+          <p>Take the two-minute placement quiz and we will open the book at the right chapter.</p>
         </div>
-        <button class="btn btn-secondary" id="startPlacementBtn">Take placement quiz</button>
+        <button class="btn btn-solid" id="startPlacementBtn">Take the quiz</button>
       </div>
 
-      <!-- Panel: paths -->
-      <div id="panelPaths">
-        <div id="levelPathHost" class="level-path"></div>
-      </div>
+      <section id="panelPaths">
+        <div id="levelPathHost" class="chapter-list"></div>
+      </section>
 
-      <!-- Panel: progress -->
-      <div id="panelProgress" hidden>
-        <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-num" id="progXp">0</div><div class="kpi-label">Total XP</div></div>
-          <div class="kpi-card"><div class="kpi-num" id="progPoints">0</div><div class="kpi-label">JESS Points</div></div>
-          <div class="kpi-card"><div class="kpi-num" id="progLevel">1</div><div class="kpi-label">Current level</div></div>
-          <div class="kpi-card"><div class="kpi-num" id="progStreak">0</div><div class="kpi-label">Day streak</div></div>
+      <section id="panelProgress" hidden>
+        <div class="figure-row">
+          <div class="figure"><span class="figure-num" id="progXp">0</span><span class="figure-cap">Experience</span></div>
+          <div class="figure"><span class="figure-num" id="progPoints">0</span><span class="figure-cap">JESS Points</span></div>
+          <div class="figure"><span class="figure-num" id="progLevel">1</span><span class="figure-cap">Level</span></div>
+          <div class="figure"><span class="figure-num" id="progStreak">0</span><span class="figure-cap">Day streak</span></div>
         </div>
-        <div class="card">
-          <h3 style="margin-bottom:14px;">Completed activities</h3>
+        <div class="sheet">
+          <h3 class="sheet-title">Finished activities</h3>
           <div id="completedList"></div>
         </div>
-      </div>
+      </section>
 
-      <!-- Panel: XP history -->
-      <div id="panelHistory" hidden>
-        <div class="card">
-          <h3 style="margin-bottom:14px;">Your XP history</h3>
+      <section id="panelHistory" hidden>
+        <div class="sheet">
+          <h3 class="sheet-title">Experience ledger</h3>
           <div id="xpHistoryList"></div>
         </div>
-      </div>
+      </section>
 
-      <!-- Panel: lessons -->
-      <div id="panelLessons" hidden>
-        <div class="lesson-filter-row">
-          <input type="text" class="media-search-input" id="lessonSearchInput" placeholder="Search lessons…" style="flex:1; min-width:180px;">
-          <select class="lesson-filter-select" id="lessonCategoryFilter"><option value="all">All categories</option></select>
-          <select class="lesson-filter-select" id="lessonDifficultyFilter"><option value="all">All difficulties</option></select>
+      <section id="panelLessons" hidden>
+        <div class="filter-bar">
+          <input type="text" class="search" id="lessonSearchInput" placeholder="Search the library">
+          <select class="picker" id="lessonCategoryFilter"><option value="all">All categories</option></select>
+          <select class="picker" id="lessonDifficultyFilter"><option value="all">All difficulties</option></select>
         </div>
         <div id="lessonGridHost"></div>
-      </div>
+      </section>
 
-      <!-- Panel: media library -->
-      <div id="panelMedia" hidden>
-        <div class="media-toolbar">
-          <input type="text" class="media-search-input" id="mediaSearchInput" placeholder="Search resources…">
+      <section id="panelMedia" hidden>
+        <div class="filter-bar">
+          <input type="text" class="search" id="mediaSearchInput" placeholder="Search resources">
         </div>
-        <div class="media-cat-tabs" id="mediaCatTabs"></div>
+        <div class="cat-strip" id="mediaCatTabs"></div>
         <div id="mediaGridHost"></div>
-      </div>
+      </section>
     </main>
   </div>
 </div>
 
-<!-- ============================================================
-     Real modal overlay — activity runner & placement quiz only
-     (never used for auth — see build notes §4)
-     ============================================================ -->
 <div id="modalHost"></div>
-
-<div id="toastStack" class="toast-stack"></div>
+<div class="toast-stack" id="toastStack"></div>
 
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
