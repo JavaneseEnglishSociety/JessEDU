@@ -6,7 +6,8 @@
 <title>JESS — Javanese English Speaking Society</title>
 <meta name="description" content="Free English lessons for every kid, everywhere. Learn English, build confidence, and grow with JESS.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="assets/images/favicon.png">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -23,7 +24,7 @@
       </a>
       <div class="nav-actions">
         <button class="btn btn-ghost" data-open-auth="login">Log in</button>
-        <button class="btn btn-primary" data-open-auth="signup">Start learning free</button>
+        <button class="btn btn-primary" data-open-auth="signup">Start learning</button>
       </div>
     </div>
   </nav>
@@ -31,80 +32,81 @@
 
 <div id="landingView">
   <section class="hero">
-    <div class="batik-texture"></div>
-    <div class="container">
-      <div class="hero-inner">
-        <p class="eyebrow">100% free · no ads · no fees, ever</p>
-        <h1>Learn English. Build confidence. <span class="accent">Grow with JESS.</span></h1>
-        <p class="hero-sub">JESS — the Javanese English Speaking Society — gives every child a clear, gamified path to spoken and written English, wherever they're starting from. No cost, no catch, just levels to climb.</p>
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <h1>English, one step at a&nbsp;time.</h1>
+        <p class="hero-sub">Free lessons from the Javanese English Speaking Society. Start where you are, even if you have never studied English before, and climb one small step at a time.</p>
         <div class="hero-cta">
-          <button class="btn btn-primary" data-open-auth="signup">Create my free account</button>
-          <button class="btn btn-secondary" id="guestCtaBtn">Continue as guest</button>
+          <button class="btn btn-primary btn-lg" data-open-auth="signup">Start learning</button>
+          <button class="btn btn-quiet" id="guestCtaBtn">Look around first</button>
         </div>
-        <div class="stat-row">
-          <div>
-            <div class="stat-num">4</div>
-            <div class="stat-label">levels to master</div>
-          </div>
-          <div>
-            <div class="stat-num">3</div>
-            <div class="stat-label">activity types</div>
-          </div>
-          <div>
-            <div class="stat-num">$0</div>
-            <div class="stat-label">cost, always</div>
-          </div>
+        <p class="hero-fineprint">No cost. No ads. You can try everything before making an account.</p>
+      </div>
+
+      <!-- The path is the hero: the first thing a learner sees is the
+           actual thing they will be doing, rather than a description of it. -->
+      <div class="hero-path" aria-hidden="true">
+        <ol class="path-track">
+          <li class="path-step done">
+            <span class="path-dot">A</span>
+            <span class="path-label">The alphabet</span>
+          </li>
+          <li class="path-step done">
+            <span class="path-dot">1</span>
+            <span class="path-label">Numbers</span>
+          </li>
+          <li class="path-step current">
+            <span class="path-dot">★</span>
+            <span class="path-label">Everyday words<em>you are here</em></span>
+          </li>
+          <li class="path-step">
+            <span class="path-dot">?</span>
+            <span class="path-label">First sentences</span>
+          </li>
+          <li class="path-step">
+            <span class="path-dot">✓</span>
+            <span class="path-label">Talking about you</span>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">How it works</h2>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <span class="feature-num">1</span>
+          <h3>Find your level</h3>
+          <p>A short quiz puts you on the step that fits you, so nothing feels too easy or too hard.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-num">2</span>
+          <h3>Play through a lesson</h3>
+          <p>Word matching, listening, sentence building. Short games, a few minutes each.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-num">3</span>
+          <h3>Come back tomorrow</h3>
+          <p>Keep your streak, collect XP, and watch the next step on the path unlock.</p>
         </div>
       </div>
     </div>
   </section>
 
   <section class="section section-dim">
-    <div class="batik-texture"></div>
-    <div class="container">
-      <div class="section-head">
-        <p class="eyebrow">How JESS works</p>
-        <h2>A path, not a paywall.</h2>
-        <p style="color:var(--ink-soft)">Every learner walks the same stepping-stone path — take a short placement quiz, land on the right level, and clear activities to earn XP and JESS Points along the way.</p>
-      </div>
-      <div class="feature-grid">
-        <div class="feature-card">
-          <div class="icon-tile" style="background:rgba(47,158,134,0.14); color:var(--leaf-dark);">📍</div>
-          <h3>Find your level</h3>
-          <p>A quick placement quiz places you on the level that actually fits — no guessing, no starting over.</p>
-        </div>
-        <div class="feature-card">
-          <div class="icon-tile" style="background:rgba(245,166,35,0.16); color:#8a5a0f;">🧩</div>
-          <h3>Learn by doing</h3>
-          <p>Quizzes, word matches, and fill-in-the-blanks — bite-sized activities built by real teachers.</p>
-        </div>
-        <div class="feature-card">
-          <div class="icon-tile" style="background:rgba(90,184,232,0.16); color:#1D6E93;">🔥</div>
-          <h3>Keep your streak</h3>
-          <p>Come back daily to keep your streak alive and rack up JESS Points as you climb.</p>
-        </div>
-        <div class="feature-card">
-          <div class="icon-tile" style="background:rgba(255,107,91,0.14); color:#B23A2C;">🎒</div>
-          <h3>Try before you sign up</h3>
-          <p>Continue as a guest and try every level with zero data collected — join for real whenever you're ready.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="section">
-    <div class="container" style="text-align:center; max-width:640px;">
-      <p class="eyebrow">Javanese English Speaking Society</p>
-      <h2>Built for learners who deserve more than a paywall.</h2>
-      <p style="color:var(--ink-soft)">JESS exists so that where you're born never decides whether you get to speak English with confidence. Join thousands of learners already on the path.</p>
-      <button class="btn btn-primary" data-open-auth="signup">Get started — it's free</button>
+    <div class="container closing">
+      <h2>Where you were born should not decide whether you can speak English.</h2>
+      <p>JESS is run by student volunteers across Java. Everything here is free, and it stays free.</p>
+      <button class="btn btn-primary btn-lg" data-open-auth="signup">Start learning</button>
     </div>
   </section>
 
   <footer class="site-footer">
-    <div class="container" style="display:flex; justify-content:space-between; width:100%; flex-wrap:wrap; gap:12px;">
-      <span>© <span id="yearNow"></span> JESS — Javanese English Speaking Society</span>
-      <a href="admin.html" style="color:var(--ink-soft)">Admin</a>
+    <div class="container footer-inner">
+      <span>&copy; <span id="yearNow"></span> Javanese English Speaking Society</span>
+      <a href="admin.html">Admin</a>
     </div>
   </footer>
 </div>
