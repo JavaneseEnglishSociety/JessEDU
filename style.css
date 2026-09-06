@@ -170,9 +170,10 @@ select:focus-visible, [tabindex]:focus-visible{
 }
 .auth-card{
   width: 100%; max-width: 420px;
-  background: #fff;
+  background: var(--card);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
+  border-top: 5px solid var(--leaf);
   padding: 36px 32px;
 }
 .auth-card .back-link{
@@ -187,7 +188,7 @@ select:focus-visible, [tabindex]:focus-visible{
   border: none; background: transparent; cursor: pointer;
   font-family: var(--font-display); font-weight: 600; font-size: 0.9rem; color: var(--ink-soft);
 }
-.auth-tab.active{ background: var(--ink); color: #fff; }
+.auth-tab.active{ background: var(--leaf-dark); color: #fff; }
 
 .field{ margin-bottom: 16px; }
 .field label{
@@ -230,44 +231,54 @@ select:focus-visible, [tabindex]:focus-visible{
 
 /* ---------- Dashboard shell ---------- */
 .dash-shell{ display: flex; min-height: 100vh; }
+/* Sidebar: was flat near-black (var(--ink)), the same dark-navy-sidebar
+   every SaaS dashboard defaults to. Deep JESS green instead, ties directly
+   to the brand rather than reading as generic admin chrome. */
 .dash-sidebar{
-  width: 240px; flex-shrink: 0;
-  background: var(--ink);
+  width: 250px; flex-shrink: 0;
+  background: var(--leaf-dark);
   color: #fff;
   padding: 24px 18px;
   display: flex; flex-direction: column; gap: 6px;
 }
-.dash-sidebar .brand{ color: #fff; margin-bottom: 20px; }
+.dash-sidebar .brand{ color: #fff; margin-bottom: 22px; }
+.dash-sidebar .brand-logo{ filter: brightness(0) invert(1); opacity: 0.95; }
 .dash-user{
   background: rgba(255,255,255,0.08); border-radius: var(--radius-sm);
-  padding: 14px; margin-bottom: 18px;
+  padding: 16px; margin-bottom: 20px;
+  border: 1px solid rgba(255,255,255,0.1);
 }
-.dash-user .name{ font-family: var(--font-display); font-weight: 700; }
-.dash-user .streak{ font-family: var(--font-mono); font-size: 0.82rem; color: var(--mango); margin-top: 4px; display:flex; align-items:center; gap:5px; }
+.dash-user .name{ font-family: var(--font-display); font-weight: 600; font-size: 1.1rem; }
+.dash-user .streak{ font-family: var(--font-body); font-weight: 600; font-size: 0.85rem; color: var(--mango); margin-top: 8px; display:flex; align-items:center; gap:6px; }
 .streak-flame{ display:inline-block; animation: flamePulse 1.8s ease-in-out infinite; }
 @keyframes flamePulse{ 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.18); } }
 @media (prefers-reduced-motion: reduce){ .streak-flame{ animation: none; } }
 
-.stat-pill-row{ display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.stat-pill-row{ display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
 .stat-pill{
-  font-family: var(--font-mono); font-size: 0.76rem; background: rgba(255,255,255,0.1);
-  padding: 4px 10px; border-radius: 999px;
+  font-family: var(--font-body); font-weight: 700; font-size: 0.78rem;
+  background: rgba(255,255,255,0.12);
+  padding: 5px 11px; border-radius: var(--radius-pill);
 }
 
 .sidebar-nav{ display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .sidebar-link{
-  display: flex; align-items: center; gap: 10px;
-  padding: 11px 12px; border-radius: var(--radius-sm);
-  color: rgba(255,255,255,0.72); text-decoration: none;
-  background: none; border: none; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 13px; border-radius: var(--radius-sm);
+  color: rgba(255,255,255,0.75); text-decoration: none;
+  background: none; border: none; border-left: 3px solid transparent; cursor: pointer; text-align: left;
   font-family: var(--font-body); font-size: 0.94rem; width: 100%;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .sidebar-link:hover{ background: rgba(255,255,255,0.08); color: #fff; }
-.sidebar-link.active{ background: var(--leaf); color: #fff; font-weight: 600; }
+/* Active state reads as a left accent + tinted fill rather than a solid
+   block of color, so it stays legible against the already-green sidebar
+   instead of just becoming a slightly different green rectangle. */
+.sidebar-link.active{ background: rgba(255,255,255,0.14); color: #fff; font-weight: 600; border-left-color: var(--mango); }
 .sidebar-foot{ border-top: 1px solid rgba(255,255,255,0.14); padding-top: 14px; margin-top: 10px; }
 
-.dash-main{ flex: 1; padding: 32px 40px; max-width: 980px; }
-.dash-header{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; flex-wrap: wrap; gap: 16px; }
+.dash-main{ flex: 1; padding: 36px 44px; max-width: 1000px; }
+.dash-header{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; flex-wrap: wrap; gap: 16px; }
 
 .guest-banner{
   background: var(--mango); color: var(--ink);
@@ -292,7 +303,7 @@ select:focus-visible, [tabindex]:focus-visible{
   position: relative;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 20px;
   padding: 14px 0;
 }
 .level-node-row:not(:last-child)::after{
@@ -306,34 +317,45 @@ select:focus-visible, [tabindex]:focus-visible{
 .level-node{
   width: 56px; height: 56px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-weight: 700; font-size: 1.2rem;
+  font-family: var(--font-display); font-weight: 600; font-size: 1.2rem;
   flex-shrink: 0; position: relative; z-index: 1;
   border: 3px solid var(--paper);
-  box-shadow: 0 0 0 3px var(--line-strong);
+  box-shadow: 0 0 0 1px var(--line-strong);
   animation: nodePop 0.4s ease backwards;
 }
 @keyframes nodePop{ from{ transform: scale(0.6); opacity: 0; } to{ transform: scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce){ .level-node{ animation: none; } }
-.level-node.locked{ background: var(--paper-dim); color: var(--ink-soft); }
-.level-node.available{ background: var(--mango); color: #fff; box-shadow: 0 0 0 3px var(--mango); }
-.level-node.complete{ background: var(--leaf); color: #fff; box-shadow: 0 0 0 3px var(--leaf); }
-.level-node-card{
-  flex: 1; background: #fff; border: 1px solid var(--line); border-radius: var(--radius-sm);
-  padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+.level-node.locked{ background: var(--paper-dim); color: var(--ink-faint); }
+.level-node.complete{ background: var(--leaf); color: #fff; box-shadow: 0 0 0 1px var(--leaf); }
+/* The one place a learner should look first: the current level gets the
+   same soft halo treatment as "you are here" on the landing page's path,
+   so the two feel like the same product rather than two different demos. */
+.level-node.available{
+  background: var(--mango); color: #4A2E06;
+  box-shadow: 0 0 0 1px var(--mango), 0 0 0 7px rgba(242,160,61,0.20);
 }
-.level-node-card h4{ margin: 0 0 2px; font-size: 1.02rem; }
-.level-node-card p{ margin: 0; font-size: 0.84rem; color: var(--ink-soft); }
-.level-node-card.locked{ opacity: 0.55; }
+.level-node-card{
+  flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.level-node-row:not(:has(.level-node.locked)) .level-node-card:hover{
+  transform: translateX(2px); box-shadow: var(--shadow-md);
+}
+.level-node-card h4{ margin: 0 0 2px; font-size: 1.05rem; }
+.level-node-card p{ margin: 0; font-size: 0.86rem; color: var(--ink-soft); }
+.level-node-card.locked{ opacity: 0.6; box-shadow: none; }
 
 .activity-chip-row{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .activity-chip{
   display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--line-strong); border-radius: 999px;
-  padding: 7px 14px; font-size: 0.82rem; cursor: pointer; background: #fff;
+  border: 1.5px solid var(--line-strong); border-radius: var(--radius-pill);
+  padding: 7px 14px; font-size: 0.85rem; font-weight: 500; cursor: pointer; background: var(--card);
   transition: border-color 0.15s, background 0.15s;
 }
 .activity-chip:hover{ border-color: var(--leaf); background: var(--paper-dim); }
-.activity-chip.done{ background: rgba(47,158,134,0.1); border-color: var(--leaf); color: var(--leaf-dark); }
+.activity-chip.done{ background: var(--leaf-wash); border-color: var(--leaf); color: var(--leaf-dark); font-weight: 600; }
 .activity-chip .type-dot{ width: 8px; height: 8px; border-radius: 50%; }
 
 .empty-state{
@@ -426,9 +448,9 @@ table.data-table tr:hover td{ background: var(--paper-dim); }
 .badge-online{ background: rgba(47,158,134,0.14); color: var(--leaf-dark); }
 
 .kpi-grid{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 14px; margin-bottom: 24px; }
-.kpi-card{ background: #fff; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 18px; }
-.kpi-card .kpi-num{ font-family: var(--font-mono); font-size: 1.8rem; font-weight: 700; color: var(--ink); }
-.kpi-card .kpi-label{ font-size: 0.8rem; color: var(--ink-soft); margin-top: 2px; }
+.kpi-card{ background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 20px; box-shadow: var(--shadow-sm); }
+.kpi-card .kpi-num{ font-family: var(--font-display); font-size: 2rem; font-weight: 600; color: var(--leaf-dark); }
+.kpi-card .kpi-label{ font-size: 0.85rem; color: var(--ink-soft); margin-top: 2px; font-weight: 500; }
 
 .toolbar{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; gap: 12px; flex-wrap: wrap; }
 
