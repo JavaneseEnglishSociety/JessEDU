@@ -559,8 +559,9 @@ let __adminLevelsCache = [];
 const ACTIVITY_TYPE_LABEL = {
   quiz: "Quiz", match: "Word match", fill: "Fill in the blank", lesson: "Lesson",
   flashcards: "Flashcards", listening: "Listening", reading: "Reading", sentenceBuilder: "Sentence builder",
+  memoryFlip: "Memory flip", wordScramble: "Word scramble", speedRound: "Speed round", picturePop: "Picture pop",
 };
-const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20 };
+const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20, memoryFlip: 20, wordScramble: 15, speedRound: 25, picturePop: 15 };
 
 async function loadActivitiesPanel() {
   const select = document.getElementById("activityLevelSelect");
@@ -690,7 +691,8 @@ function openActivityEditor(activity, forceType) {
   const type = activity ? activity.type : forceType;
   const levelId = document.getElementById("activityLevelSelect").value;
   const defaultXp = (activity && activity.xpReward) || DEFAULT_XP_BY_TYPE[type] || 10;
-  const isRowType = type === "quiz" || type === "match" || type === "fill";
+  const isRowType = type === "quiz" || type === "match" || type === "fill" ||
+    type === "memoryFlip" || type === "wordScramble" || type === "speedRound" || type === "picturePop";
 
   let bodyHtml =
     '<h3 style="margin-bottom:16px;">' + (isNew ? "New " + ACTIVITY_TYPE_LABEL[type] : "Edit " + ACTIVITY_TYPE_LABEL[type]) + '</h3>' +
@@ -726,14 +728,39 @@ function openActivityEditor(activity, forceType) {
         rows = activity && activity.payload && activity.payload.pairs
           ? activity.payload.pairs.map(p => ({ term: p.term, definition: p.definition }))
           : [{ term: "", definition: "" }];
-      } else {
+      } else if (type === "fill") {
         rows = activity && activity.payload && activity.payload.items
           ? activity.payload.items.map(i => ({ sentence: i.sentence, answer: i.answer }))
           : [{ sentence: "", answer: "" }];
+      } else if (type === "memoryFlip") {
+        rows = activity && activity.payload && activity.payload.pairs
+          ? activity.payload.pairs.map(p => ({ a: p.a, b: p.b }))
+          : [{ a: "", b: "" }];
+      } else if (type === "wordScramble") {
+        rows = activity && activity.payload && activity.payload.words
+          ? activity.payload.words.map(w => ({ word: w.word, hint: w.hint || "" }))
+          : [{ word: "", hint: "" }];
+      } else if (type === "speedRound") {
+        rows = activity && activity.payload && activity.payload.statements
+          ? activity.payload.statements.map(st => ({ text: st.text, isTrue: !!st.isTrue }))
+          : [{ text: "", isTrue: true }];
+      } else {
+        rows = activity && activity.payload && activity.payload.rounds
+          ? activity.payload.rounds.map(r => ({ word: r.word, correctEmoji: r.correctEmoji, decoyEmojis: (r.decoyEmojis || []).join(" ") }))
+          : [{ word: "", correctEmoji: "", decoyEmojis: "" }];
       }
 
-      typeBodyHost.innerHTML = '<div id="actRowsHost"></div>' +
-        '<button class="btn btn-secondary btn-sm" id="addRowBtn" type="button" style="margin-bottom:16px;">+ Add ' + (type === "quiz" ? "question" : type === "match" ? "pair" : "item") + '</button>';
+      const ROW_ADD_LABEL = {
+        quiz: "question", match: "pair", fill: "item",
+        memoryFlip: "pair", wordScramble: "word", speedRound: "statement", picturePop: "round"
+      };
+      typeBodyHost.innerHTML =
+        (type === "speedRound"
+          ? '<div class="field"><label>Time limit (seconds)</label><input type="number" id="speedSecondsInput" min="10" max="180" value="' +
+            (activity && activity.payload && activity.payload.seconds ? activity.payload.seconds : 30) + '"></div>'
+          : "") +
+        '<div id="actRowsHost"></div>' +
+        '<button class="btn btn-secondary btn-sm" id="addRowBtn" type="button" style="margin-bottom:16px;">+ Add ' + ROW_ADD_LABEL[type] + '</button>';
       const rowsHost = document.getElementById("actRowsHost");
 
       function renderRows() {
@@ -755,11 +782,40 @@ function openActivityEditor(activity, forceType) {
             '<div class="field"><label>Definition</label><input type="text" data-qi="' + i + '" data-f="definition" value="' + escapeAttr(p.definition) + '"></div>' +
             '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
           ).join("");
-        } else {
+        } else if (type === "fill") {
           rowsHost.innerHTML = rows.map((it, i) =>
             '<div class="repeat-row">' +
             '<div class="field" style="flex:2;"><label>Sentence ' + (i + 1) + ' (use ___ for the blank)</label><input type="text" data-qi="' + i + '" data-f="sentence" value="' + escapeAttr(it.sentence) + '"></div>' +
             '<div class="field"><label>Answer</label><input type="text" data-qi="' + i + '" data-f="answer" value="' + escapeAttr(it.answer) + '"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else if (type === "memoryFlip") {
+          rowsHost.innerHTML = rows.map((p, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field"><label>Card A ' + (i + 1) + '<span class="field-hint" style="display:block;">e.g. the English word</span></label><input type="text" data-qi="' + i + '" data-f="a" value="' + escapeAttr(p.a) + '"></div>' +
+            '<div class="field"><label>Card B<span class="field-hint" style="display:block;">e.g. its translation, or a matching emoji</span></label><input type="text" data-qi="' + i + '" data-f="b" value="' + escapeAttr(p.b) + '"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else if (type === "wordScramble") {
+          rowsHost.innerHTML = rows.map((w, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field"><label>Word ' + (i + 1) + '<span class="field-hint" style="display:block;">letters only, no spaces</span></label><input type="text" data-qi="' + i + '" data-f="word" value="' + escapeAttr(w.word) + '"></div>' +
+            '<div class="field"><label>Hint <span class="field-hint" style="display:inline;">(optional)</span></label><input type="text" data-qi="' + i + '" data-f="hint" value="' + escapeAttr(w.hint) + '"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else if (type === "speedRound") {
+          rowsHost.innerHTML = rows.map((st, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field" style="flex:2;"><label>Statement ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="text" value="' + escapeAttr(st.text) + '"></div>' +
+            '<div class="field"><label><input type="checkbox" class="speed-true-check" data-qi="' + i + '" ' + (st.isTrue ? "checked" : "") + ' style="width:auto;"> True</label></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else {
+          rowsHost.innerHTML = rows.map((r, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field"><label>Word ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="word" value="' + escapeAttr(r.word) + '"></div>' +
+            '<div class="field"><label>Correct emoji</label><input type="text" data-qi="' + i + '" data-f="correctEmoji" value="' + escapeAttr(r.correctEmoji) + '" placeholder="🐱"></div>' +
+            '<div class="field"><label>Decoy emojis <span class="field-hint" style="display:inline;">(space-separated)</span></label><input type="text" data-qi="' + i + '" data-f="decoyEmojis" value="' + escapeAttr(r.decoyEmojis) + '" placeholder="🐶 🐦 🐟"></div>' +
             '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
           ).join("");
         }
@@ -772,6 +828,9 @@ function openActivityEditor(activity, forceType) {
         rowsHost.querySelectorAll(".correct-radio").forEach(r => r.addEventListener("change", () => {
           rows[parseInt(r.getAttribute("data-qi"), 10)].correctIndex = parseInt(r.getAttribute("data-oi"), 10);
         }));
+        rowsHost.querySelectorAll(".speed-true-check").forEach(cb => cb.addEventListener("change", () => {
+          rows[parseInt(cb.getAttribute("data-qi"), 10)].isTrue = cb.checked;
+        }));
         rowsHost.querySelectorAll("[data-remove]").forEach(btn => btn.addEventListener("click", () => {
           rows.splice(parseInt(btn.getAttribute("data-remove"), 10), 1);
           renderRows();
@@ -781,42 +840,40 @@ function openActivityEditor(activity, forceType) {
       document.getElementById("addRowBtn").addEventListener("click", () => {
         if (type === "quiz") rows.push({ text: "", options: ["", "", "", ""], correctIndex: 0 });
         else if (type === "match") rows.push({ term: "", definition: "" });
-        else rows.push({ sentence: "", answer: "" });
+        else if (type === "fill") rows.push({ sentence: "", answer: "" });
+        else if (type === "memoryFlip") rows.push({ a: "", b: "" });
+        else if (type === "wordScramble") rows.push({ word: "", hint: "" });
+        else if (type === "speedRound") rows.push({ text: "", isTrue: true });
+        else rows.push({ word: "", correctEmoji: "", decoyEmojis: "" });
         renderRows();
       });
 
       getPayload = () => {
         if (type === "quiz") return { questions: rows.map(q => ({ text: q.text, options: q.options, correctIndex: q.correctIndex })) };
         if (type === "match") return { pairs: rows.map(p => ({ term: p.term, definition: p.definition })) };
-        return { items: rows.map(it => ({ sentence: it.sentence, answer: it.answer })) };
+        if (type === "fill") return { items: rows.map(it => ({ sentence: it.sentence, answer: it.answer })) };
+        if (type === "memoryFlip") return { pairs: rows.map(p => ({ a: p.a, b: p.b })) };
+        if (type === "wordScramble") return { words: rows.map(w => ({ word: w.word.replace(/\s+/g, ""), hint: w.hint })) };
+        if (type === "speedRound") {
+          const secondsInput = document.getElementById("speedSecondsInput");
+          return {
+            statements: rows.map(st => ({ text: st.text, isTrue: !!st.isTrue })),
+            seconds: secondsInput ? parseInt(secondsInput.value, 10) || 30 : 30
+          };
+        }
+        return { rounds: rows.map(r => ({ word: r.word, correctEmoji: r.correctEmoji, decoyEmojis: r.decoyEmojis.split(/\s+/).filter(Boolean) })) };
       };
-      validate = () => (!rows.length ? "Add at least one item." : null);
+      validate = () => {
+        if (!rows.length) return "Add at least one item.";
+        if (type === "picturePop" && rows.some(r => !r.correctEmoji || !r.decoyEmojis.trim())) {
+          return "Every round needs a correct emoji and at least one decoy emoji.";
+        }
+        return null;
+      };
 
     } else if (type === "lesson") {
       blocks = activity && activity.payload && activity.payload.blocks ? JSON.parse(JSON.stringify(activity.payload.blocks)) : [];
-      typeBodyHost.innerHTML =
-        '<div class="ai-assist-panel">' +
-          '<div class="ai-assist-head">' +
-            '<strong>\u2728 Draft this lesson with AI</strong>' +
-            '<span class="ai-assist-note">Generates editable blocks you can rewrite or delete. Nothing is saved until you save the activity.</span>' +
-          '</div>' +
-          '<div class="ai-assist-row">' +
-            '<input type="text" id="aiTopic" placeholder="Topic, e.g. Past tense for beginners">' +
-            '<select id="aiLevel">' +
-              '<option value="complete beginner">Complete beginner</option>' +
-              '<option value="beginner" selected>Beginner</option>' +
-              '<option value="intermediate">Intermediate</option>' +
-            '</select>' +
-            '<select id="aiCount">' +
-              '<option value="4">4 blocks</option>' +
-              '<option value="6" selected>6 blocks</option>' +
-              '<option value="9">9 blocks</option>' +
-            '</select>' +
-            '<button type="button" class="btn btn-primary" id="aiGenerateBtn">Generate</button>' +
-          '</div>' +
-          '<p class="ai-assist-status" id="aiStatus"></p>' +
-        '</div>' +
-        '<div class="add-block-row">' +
+      typeBodyHost.innerHTML = '<div class="add-block-row">' +
         Object.keys(BLOCK_TYPE_LABELS).map(t => '<button type="button" class="add-block-btn" data-add-block="' + t + '">+ ' + BLOCK_TYPE_LABELS[t] + '</button>').join("") +
         '</div><div class="block-editor-list" id="actBlockEditorList"></div>';
 
@@ -874,42 +931,6 @@ function openActivityEditor(activity, forceType) {
         blocks.push(defaultBlock(btn.getAttribute("data-add-block")));
         renderBlocks();
       }));
-
-      // AI drafting. Generated blocks are APPENDED rather than replacing
-      // what's already there, so hitting Generate can never wipe out work
-      // the volunteer already did by hand.
-      const aiBtn = document.getElementById("aiGenerateBtn");
-      if (aiBtn) {
-        aiBtn.addEventListener("click", async () => {
-          const statusEl = document.getElementById("aiStatus");
-          const topic = document.getElementById("aiTopic").value.trim();
-          if (!topic) {
-            statusEl.className = "ai-assist-status err";
-            statusEl.textContent = "Type a topic first.";
-            return;
-          }
-          const level = document.getElementById("aiLevel").value;
-          const count = parseInt(document.getElementById("aiCount").value, 10);
-          aiBtn.disabled = true;
-          statusEl.className = "ai-assist-status";
-          statusEl.textContent = "Writing the lesson\u2026 this usually takes a few seconds.";
-          try {
-            syncRte();
-            const generated = await window.JessAI.generateLessonBlocks(topic, level, count);
-            blocks = blocks.concat(generated);
-            renderBlocks();
-            statusEl.className = "ai-assist-status ok";
-            statusEl.textContent = "Added " + generated.length + " blocks. Edit them as you like, then save the activity.";
-          } catch (err) {
-            console.warn("JessEDU: AI lesson generation failed.", err);
-            statusEl.className = "ai-assist-status err";
-            statusEl.textContent = (err && err.message) ? err.message : "Could not generate the lesson. Try again.";
-          } finally {
-            aiBtn.disabled = false;
-          }
-        });
-      }
-
       renderBlocks();
 
       getPayload = () => { syncRte(); return { blocks }; };

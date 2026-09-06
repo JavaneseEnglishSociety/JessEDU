@@ -405,14 +405,18 @@ function levelStateFor(index) {
 const ACTIVITY_TYPE_META = {
   quiz: { label: "Quiz", color: "var(--leaf)", icon: "📝" },
   match: { label: "Word match", color: "var(--sky)", icon: "🔤" },
-  fill: { label: "Fill in the blank", color: "var(--sun)", icon: "✏️" },
+  fill: { label: "Fill in the blank", color: "var(--mango)", icon: "✏️" },
   lesson: { label: "Lesson", color: "var(--leaf-dark)", icon: "📘" },
   flashcards: { label: "Flashcards", color: "var(--sky)", icon: "🗂️" },
-  listening: { label: "Listening", color: "var(--sun)", icon: "🎧" },
+  listening: { label: "Listening", color: "var(--mango)", icon: "🎧" },
   reading: { label: "Reading", color: "var(--leaf)", icon: "📖" },
   sentenceBuilder: { label: "Sentence builder", color: "var(--coral)", icon: "🧩" },
+  memoryFlip: { label: "Memory flip", color: "var(--sky)", icon: "🃏" },
+  wordScramble: { label: "Word scramble", color: "var(--mango)", icon: "🔀" },
+  speedRound: { label: "Speed round", color: "var(--coral)", icon: "⚡" },
+  picturePop: { label: "Picture pop", color: "var(--leaf)", icon: "🎯" },
 };
-const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20 };
+const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20, memoryFlip: 20, wordScramble: 15, speedRound: 25, picturePop: 15 };
 
 
 function renderLevelPath() {
@@ -870,6 +874,10 @@ function openActivityModal(activity) {
         else if (activity.type === "listening") runListeningActivity(activity);
         else if (activity.type === "reading") runReadingActivity(activity);
         else if (activity.type === "sentenceBuilder") runSentenceBuilderActivity(activity);
+        else if (activity.type === "memoryFlip") runMemoryFlipActivity(activity);
+        else if (activity.type === "wordScramble") runWordScrambleActivity(activity);
+        else if (activity.type === "speedRound") runSpeedRoundActivity(activity);
+        else if (activity.type === "picturePop") runPicturePopActivity(activity);
       });
     }
   );
@@ -921,6 +929,10 @@ function renderActivityResult(activity, correctCount, total) {
       else if (activity.type === "listening") runListeningActivity(activity);
       else if (activity.type === "reading") runReadingActivity(activity);
       else if (activity.type === "sentenceBuilder") runSentenceBuilderActivity(activity);
+      else if (activity.type === "memoryFlip") runMemoryFlipActivity(activity);
+      else if (activity.type === "wordScramble") runWordScrambleActivity(activity);
+      else if (activity.type === "speedRound") runSpeedRoundActivity(activity);
+      else if (activity.type === "picturePop") runPicturePopActivity(activity);
     });
     document.getElementById("resultCloseBtn").addEventListener("click", closeModal);
   }
@@ -1278,6 +1290,273 @@ function runSentenceBuilderActivity(activity) {
   }
 
   setupSentence();
+}
+
+/* ---------------------------------------------------------
+   10b. Four new game types: memory flip, word scramble,
+   speed round, picture pop
+   --------------------------------------------------------- */
+
+/* ---- Memory Flip: classic pairs-matching game -------------------------
+   Payload: { pairs: [{ a: "cat", b: "kucing" }, ...] }
+   Every card in the grid is one half of a pair (word or its translation);
+   the learner flips two at a time looking for a match. */
+function runMemoryFlipActivity(activity) {
+  const pairs = (activity.payload && activity.payload.pairs) || [];
+  const cards = shuffle(
+    pairs.flatMap((p, i) => [
+      { pairId: i, text: p.a, matched: false },
+      { pairId: i, text: p.b, matched: false },
+    ])
+  );
+  let firstPick = null;   // index into `cards` of the currently face-up card
+  let busy = false;       // true while showing a mismatched pair briefly
+  let attempts = 0;
+  let matchedCount = 0;
+
+  const cardHtml = (c, i) =>
+    '<button type="button" class="memory-card" data-i="' + i + '" aria-label="Memory card">' +
+      '<span class="memory-card-inner">' +
+        '<span class="memory-card-back">?</span>' +
+        '<span class="memory-card-front">' + escapeHtml(c.text) + '</span>' +
+      '</span>' +
+    '</button>';
+
+  openModal(
+    '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Memory flip</p>' +
+    '<h3 style="margin-bottom:4px;">Find every matching pair</h3>' +
+    '<p style="color:var(--ink-soft); margin-bottom:16px;">Tap two cards to flip them. Matching pairs stay open.</p>' +
+    '<div class="memory-grid" id="memoryGrid">' + cards.map(cardHtml).join("") + '</div>',
+    () => {
+      const grid = document.getElementById("memoryGrid");
+      grid.addEventListener("click", (e) => {
+        const btn = e.target.closest(".memory-card");
+        if (!btn || busy) return;
+        const i = parseInt(btn.getAttribute("data-i"), 10);
+        if (cards[i].matched || btn.classList.contains("flipped")) return;
+
+        btn.classList.add("flipped");
+
+        if (firstPick === null) {
+          firstPick = i;
+          return;
+        }
+        attempts++;
+        const firstBtn = grid.querySelector('[data-i="' + firstPick + '"]');
+        if (cards[firstPick].pairId === cards[i].pairId) {
+          cards[firstPick].matched = true;
+          cards[i].matched = true;
+          matchedCount++;
+          btn.classList.add("matched");
+          firstBtn.classList.add("matched");
+          firstPick = null;
+          if (matchedCount === pairs.length) {
+            // A perfect run scores 100%; every extra attempt beyond the
+            // minimum possible costs a little, so speed and memory both
+            // count, but finishing at all still always passes.
+            const perfect = pairs.length;
+            const scoreFraction = Math.max(0.6, perfect / Math.max(perfect, attempts));
+            setTimeout(() => renderActivityResult(activity, Math.round(scoreFraction * perfect), perfect), 500);
+          }
+        } else {
+          busy = true;
+          setTimeout(() => {
+            btn.classList.remove("flipped");
+            firstBtn.classList.remove("flipped");
+            firstPick = null;
+            busy = false;
+          }, 700);
+        }
+      });
+    }
+  );
+}
+
+/* ---- Word Scramble: unscramble letter tiles ---------------------------
+   Payload: { words: [{ word: "apple", hint: "a red fruit" }, ...] }
+   Letters render as individual tappable tiles; tapping one moves it into
+   the answer row in order, tapping it there sends it back down. */
+function runWordScrambleActivity(activity) {
+  const words = (activity.payload && activity.payload.words) || [];
+  let idx = 0;
+  let correctCount = 0;
+
+  function scrambleLetters(word) {
+    let letters = word.split("");
+    let attempts = 0;
+    // Reshuffle if the shuffle happens to land on the original order
+    // (common with short words), rather than showing an already-solved word.
+    do {
+      letters = shuffle(letters);
+      attempts++;
+    } while (letters.join("") === word && attempts < 8);
+    return letters;
+  }
+
+  function setupWord() {
+    const w = words[idx];
+    const scrambled = scrambleLetters(w.word);
+    const placed = new Array(w.word.length).fill(null); // index into scrambled, or null
+
+    openModal(
+      '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Word scramble (' + (idx + 1) + '/' + words.length + ')</p>' +
+      (w.hint ? '<p style="color:var(--ink-soft); margin-bottom:14px;">Hint: ' + escapeHtml(w.hint) + '</p>' : '') +
+      '<div class="scramble-answer" id="scrambleAnswer"></div>' +
+      '<div class="scramble-tiles" id="scrambleTiles"></div>' +
+      '<div style="display:flex; gap:10px; margin-top:16px;">' +
+      '<button class="btn btn-secondary" id="scrambleClearBtn">Clear</button>' +
+      '<button class="btn btn-primary btn-block" id="scrambleCheckBtn">Check word</button>' +
+      '</div>',
+      () => {
+        const answerHost = document.getElementById("scrambleAnswer");
+        const tilesHost = document.getElementById("scrambleTiles");
+
+        function draw() {
+          answerHost.innerHTML = placed.map((si, slot) =>
+            '<button type="button" class="scramble-slot ' + (si === null ? "empty" : "filled") + '" data-slot="' + slot + '">' +
+            (si === null ? "" : escapeHtml(scrambled[si])) + '</button>'
+          ).join("");
+          tilesHost.innerHTML = scrambled.map((ch, si) =>
+            '<button type="button" class="scramble-tile" data-si="' + si + '" ' +
+            (placed.includes(si) ? "disabled" : "") + '>' + escapeHtml(ch) + '</button>'
+          ).join("");
+        }
+        draw();
+
+        tilesHost.addEventListener("click", (e) => {
+          const btn = e.target.closest(".scramble-tile");
+          if (!btn || btn.disabled) return;
+          const si = parseInt(btn.getAttribute("data-si"), 10);
+          const emptySlot = placed.indexOf(null);
+          if (emptySlot === -1) return;
+          placed[emptySlot] = si;
+          draw();
+        });
+        answerHost.addEventListener("click", (e) => {
+          const btn = e.target.closest(".scramble-slot");
+          if (!btn || btn.classList.contains("empty")) return;
+          const slot = parseInt(btn.getAttribute("data-slot"), 10);
+          placed[slot] = null;
+          draw();
+        });
+        document.getElementById("scrambleClearBtn").addEventListener("click", () => {
+          placed.fill(null);
+          draw();
+        });
+        document.getElementById("scrambleCheckBtn").addEventListener("click", () => {
+          if (placed.includes(null)) { showToast("Fill every letter first.", "info"); return; }
+          const attempt = placed.map(si => scrambled[si]).join("");
+          if (attempt.toLowerCase() === w.word.toLowerCase()) correctCount++;
+          idx++;
+          if (idx < words.length) setupWord();
+          else renderActivityResult(activity, correctCount, words.length);
+        });
+      }
+    );
+  }
+  setupWord();
+}
+
+/* ---- Speed Round: rapid true/false against a countdown ----------------
+   Payload: { statements: [{ text: "...", isTrue: true }, ...], seconds: 30 }
+   Score is how many the learner answers correctly before the clock runs
+   out, so both speed and accuracy matter. */
+function runSpeedRoundActivity(activity) {
+  const statements = shuffle((activity.payload && activity.payload.statements) || []);
+  const totalSeconds = (activity.payload && activity.payload.seconds) || 30;
+  let i = 0, correct = 0, timeLeft = totalSeconds, timer = null, ended = false;
+
+  function endRound() {
+    if (ended) return;
+    ended = true;
+    clearInterval(timer);
+    // Speed Round always "passes" if at least one statement is answered
+    // right and every statement seen is counted, since running out of
+    // clock is the natural end of the game, not a failure state the
+    // way a wrong quiz answer is.
+    renderActivityResult(activity, correct, Math.max(1, i));
+  }
+
+  function renderStatement() {
+    if (i >= statements.length) { endRound(); return; }
+    const s = statements[i];
+    const panel = document.querySelector("#modalHost .modal-panel");
+    if (!panel) return;
+    panel.querySelector("#speedStatementText").textContent = s.text;
+    panel.querySelector("#speedProgress").textContent = (i + 1) + " / " + statements.length;
+  }
+
+  openModal(
+    '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Speed round</p>' +
+    '<div class="speed-header">' +
+      '<span class="speed-timer" id="speedTimer">' + timeLeft + 's</span>' +
+      '<span class="speed-progress" id="speedProgress">1 / ' + statements.length + '</span>' +
+    '</div>' +
+    '<div class="speed-statement" id="speedStatementText" style="margin:20px 0;"></div>' +
+    '<div class="speed-buttons">' +
+      '<button type="button" class="btn btn-danger btn-lg" id="speedFalseBtn">False</button>' +
+      '<button type="button" class="btn btn-primary btn-lg" id="speedTrueBtn">True</button>' +
+    '</div>',
+    () => {
+      renderStatement();
+      timer = setInterval(() => {
+        timeLeft--;
+        const el = document.getElementById("speedTimer");
+        if (el) el.textContent = timeLeft + "s";
+        if (timeLeft <= 0) endRound();
+      }, 1000);
+
+      function answer(said) {
+        if (ended || i >= statements.length) return;
+        if (said === statements[i].isTrue) correct++;
+        i++;
+        renderStatement();
+        if (i >= statements.length) endRound();
+      }
+      document.getElementById("speedTrueBtn").addEventListener("click", () => answer(true));
+      document.getElementById("speedFalseBtn").addEventListener("click", () => answer(false));
+    }
+  );
+}
+
+/* ---- Picture Pop: tap the picture that matches the word ----------------
+   Payload: { rounds: [{ word: "cat", correctEmoji: "🐱", decoyEmojis: ["🐶","🐦","🐟"] }, ...] }
+   Built for absolute beginners: no reading comprehension needed beyond
+   recognising one written word, since the answer is a picture, not text. */
+function runPicturePopActivity(activity) {
+  const rounds = (activity.payload && activity.payload.rounds) || [];
+  let idx = 0, correct = 0;
+
+  function setupRound() {
+    const r = rounds[idx];
+    const options = shuffle([r.correctEmoji, ...(r.decoyEmojis || [])]);
+    openModal(
+      '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Picture pop (' + (idx + 1) + '/' + rounds.length + ')</p>' +
+      '<h3 style="margin-bottom:18px;">Which picture is "' + escapeHtml(r.word) + '"?</h3>' +
+      '<div class="picture-grid" id="pictureGrid">' +
+        options.map(em => '<button type="button" class="picture-option" data-em="' + escapeHtml(em) + '">' + em + '</button>').join("") +
+      '</div>',
+      () => {
+        document.getElementById("pictureGrid").addEventListener("click", (e) => {
+          const btn = e.target.closest(".picture-option");
+          if (!btn) return;
+          const picked = btn.getAttribute("data-em");
+          if (picked === r.correctEmoji) {
+            correct++;
+            btn.classList.add("correct");
+          } else {
+            btn.classList.add("wrong");
+          }
+          setTimeout(() => {
+            idx++;
+            if (idx < rounds.length) setupRound();
+            else renderActivityResult(activity, correct, rounds.length);
+          }, 500);
+        });
+      }
+    );
+  }
+  setupRound();
 }
 
 /* ---------------------------------------------------------
