@@ -54,6 +54,7 @@
         <button class="rail-tab" data-admin-panel="learners">🧑‍🎓 Learners</button>
         <button class="rail-tab" data-admin-panel="levels">🗺️ Levels</button>
         <button class="rail-tab" data-admin-panel="activities">🧩 Activities</button>
+        <button class="rail-tab" data-admin-panel="ai">✨ AI Assistant</button>
         <button class="rail-tab" data-admin-panel="lessons">📘 Lessons</button>
         <button class="rail-tab" data-admin-panel="placement">📍 Placement quiz</button>
         <button class="rail-tab" data-admin-panel="media">🗂️ Media Library</button>
@@ -124,6 +125,26 @@
           </div>
         </div>
         <div id="activitiesListHost"></div>
+      </section>
+
+      <!-- AI Curriculum Assistant -->
+      <section id="adminPanelAi" hidden>
+        <div class="area-head">
+          <div>
+            <p class="folio">AI Assistant</p>
+            <h2 style="margin:0;">Build curriculum with AI</h2>
+          </div>
+        </div>
+        <div class="alert alert-info" style="margin-bottom:18px;">
+          Describe what you want ("a beginner quiz about fruit, 5 questions" or "a word match for family members"), and the assistant will draft it using the exact same blocks you can build by hand: quiz, word match, fill in the blank, flashcards, memory flip, word scramble, speed round, or picture pop. Nothing is saved to the site until you open the draft in the normal editor and press Save yourself.
+        </div>
+        <div class="sheet" style="padding:0; overflow:hidden;">
+          <div id="aiChatLog" class="ai-chat-log"></div>
+          <form id="aiChatForm" class="ai-chat-form">
+            <input type="text" id="aiChatInput" placeholder="Ask for a quiz, word match, flashcards…" autocomplete="off">
+            <button type="submit" class="btn btn-solid" id="aiChatSendBtn">Send</button>
+          </form>
+        </div>
       </section>
 
       <!-- Lessons -->

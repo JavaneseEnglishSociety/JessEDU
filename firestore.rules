@@ -162,17 +162,28 @@ service cloud.firestore {
     // ============================================================
     // JESSEDU — content authored by the admin
     // ============================================================
+    // NOTE: JessEDU's admin panel no longer signs in with real Firebase
+    // Authentication either (matching JessPortal's admin — see admin.js).
+    // The isAdmin() checks below are replaced with `if true` for these
+    // CONTENT collections only. This means anyone who can reach this
+    // Firestore project can read, write, or delete levels, activities,
+    // lessons, media, and the placement quiz directly, with or without
+    // ever opening the admin panel's password screen. Deliberate choice
+    // for a closed testing deployment. Student accounts and progress
+    // (users/{uid} and its progress subcollection, above) are completely
+    // unaffected by this and still require a real signed-in student —
+    // that part of the app never used the admin password at all.
     match /levels/{levelId} {
-      allow read: if resource.data.published == true || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow read: if true;
+      allow write: if true;
     }
     match /activities/{activityId} {
-      allow read: if resource.data.published == true || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow read: if true;
+      allow write: if true;
     }
     match /placementQuiz/config {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if true;
     }
 
     // ============================================================
@@ -181,8 +192,8 @@ service cloud.firestore {
     // searchable metadata + the download URL.
     // ============================================================
     match /media/{mediaId} {
-      allow read: if resource.data.published == true || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow read: if true;
+      allow write: if true;
     }
 
     // ============================================================
@@ -196,17 +207,17 @@ service cloud.firestore {
     // activityId or a lessonId, both are just unique document IDs).
     // ============================================================
     match /lessons/{lessonId} {
-      allow read: if resource.data.published == true || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow read: if true;
+      allow write: if true;
     }
 
     // ============================================================
-    // SHARED — visitor analytics for BOTH sites. JessPortal's own
-    // 'portalTotals' doc is opened up per the note above; 'eduTotals'
-    // stays admin-gated since JessEdu still uses real Firebase Auth.
+    // SHARED — visitor analytics for BOTH sites. Both docs are now
+    // open to read, since neither admin panel uses real Firebase Auth
+    // any more.
     // ============================================================
     match /analytics/{docId} {
-      allow read: if docId == 'portalTotals' || isAdmin();
+      allow read: if true;
       allow create: if docId in ['portalTotals', 'eduTotals']
                     && request.resource.data.keys().hasOnly(['visits', 'lastVisitAt'])
                     && request.resource.data.visits == 1;
@@ -218,11 +229,8 @@ service cloud.firestore {
     match /presence/{sessionId} {
       allow create, update: if request.resource.data.keys().hasOnly(['lastSeen', 'loggedIn', 'page', 'site'])
                             && request.resource.data.site in ['portal', 'edu'];
-      // JessPortal's admin Statistics panel reads/clears presence docs
-      // without real Firebase Auth now, so 'portal' sessions are open;
-      // JessEdu's stay admin-gated.
-      allow read: if resource.data.site == 'portal' || isAdmin();
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow delete: if true;
     }
 
   }

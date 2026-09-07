@@ -25,6 +25,20 @@ const db = firebase.firestore();
 // Fixed admin identity — must match isAdmin() in firestore.rules exactly.
 const ADMIN_EMAIL = "begawanbillykurniawan@gmail.com";
 
+// TEMPORARY placeholder admin password, matching the same local-only
+// pattern JessPortal uses — see admin.js for why. Visible in this repo
+// on purpose for a closed testing deployment; treat it the same way
+// JessPortal's does (change it here AND in firestore.rules' expectations
+// if you ever tighten this back up).
+window.ADMIN_PASSWORD = "JESSPassword";
+
+// OpenRouter — powers the AI curriculum assistant in admin.js. Same
+// exposure caveat as above: this is a static site, so any key placed
+// here is visible via view-source to anyone who opens the admin page.
+// Placed here at the site owner's explicit instruction for a closed,
+// low-usage testing deployment. Revoke and replace before any wider use.
+window.OPENROUTER_API_KEY = "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";
+
 // This Firestore database is shared with the separate JESSPORTAL
 // (NGO info) site. Every analytics/presence doc JESSEDU writes is
 // tagged with SITE_TAG so it stays segregated from portal traffic,

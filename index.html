@@ -298,6 +298,14 @@
 <div id="modalHost"></div>
 <div class="toast-stack" id="toastStack"></div>
 
+<!-- Obvious, always-visible translate toggle. Translates the visible
+     reading area between English and Indonesian using a free public
+     translation endpoint, no key, no cost, no setup required. -->
+<button id="translateFab" class="translate-fab" type="button" title="Translate this page">
+  <span class="translate-fab-icon">🌐</span>
+  <span id="translateFabLabel">EN &rarr; ID</span>
+</button>
+
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>

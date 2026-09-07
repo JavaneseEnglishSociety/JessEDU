@@ -59,45 +59,66 @@ function setBtnLoading(btn, loading, label) {
 
 /* ---------------------------------------------------------
    1. Passcode gate / logout — full-page views, never modals
+   ---------------------------------------------------------
+   Ported from JessPortal: this is now a purely LOCAL password check,
+   never a real Firebase sign-in. `isAdminUnlocked` lives only in this
+   tab's memory — true after a correct password, reset on logout or
+   reload. There is no session, no token, nothing persisted.
+
+   This only means anything because firestore.rules was changed to
+   stop requiring a signed-in Firebase account for JessEDU's own
+   CONTENT collections (levels, activities, lessons, media,
+   placementQuiz) — Firestore's rules run server-side and can't see
+   this password, so removing the real auth check there is what makes
+   a repo-local password meaningful instead of a UI dead end. Student
+   accounts (users/{uid} and their progress) are completely untouched
+   and still require real Firebase Authentication, since app.js's own
+   learner login is unrelated to this and still does the real thing.
    --------------------------------------------------------- */
+let isAdminUnlocked = false;
+
 function showAdminView(name) {
   document.getElementById("adminGate").hidden = name !== "gate";
   document.getElementById("adminDashboard").hidden = name !== "dashboard";
 }
 
-document.getElementById("adminLoginForm").addEventListener("submit", async (e) => {
+document.getElementById("adminLoginForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const alertHost = document.getElementById("adminGateAlert");
   renderAlert(alertHost, "");
   const passcode = document.getElementById("authSecret9").value;
   const btn = document.getElementById("adminLoginBtn");
   setBtnLoading(btn, true);
-  try {
-    await auth.signInWithEmailAndPassword(ADMIN_EMAIL, passcode);
-  } catch (err) {
-    renderAlert(alertHost, describeFirebaseError(err));
-  } finally {
+  const expected = window.ADMIN_PASSWORD;
+  setTimeout(() => {
+    // The tiny delay is cosmetic only (matches the old sign-in call's
+    // perceived latency) — the check itself is instant and local.
+    if (expected && passcode === expected) {
+      isAdminUnlocked = true;
+      showAdminView("dashboard");
+      bootAdminDashboard();
+    } else {
+      renderAlert(alertHost, "Incorrect password.");
+    }
     setBtnLoading(btn, false, "Enter admin panel");
-  }
+  }, 150);
 });
 
-document.getElementById("adminLogoutBtn").addEventListener("click", async () => {
-  await auth.signOut();
+document.getElementById("adminLogoutBtn").addEventListener("click", () => {
+  isAdminUnlocked = false;
+  showAdminView("gate");
 });
 
-auth.onAuthStateChanged((user) => {
-  if (user && user.email === ADMIN_EMAIL) {
-    showAdminView("dashboard");
-    bootAdminDashboard();
-  } else {
-    showAdminView("gate");
-  }
-});
+// Runs once on load. No real onAuthStateChanged to listen to anymore,
+// so this just reflects whatever isAdminUnlocked already is (false,
+// on a fresh page load — there is no persisted session by design).
+showAdminView(isAdminUnlocked ? "dashboard" : "gate");
+if (isAdminUnlocked) bootAdminDashboard();
 
 /* ---------------------------------------------------------
    2. Sidebar panel switching
    --------------------------------------------------------- */
-const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "lessons", "placement", "media"];
+const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "ai", "lessons", "placement", "media"];
 document.querySelectorAll("[data-admin-panel]").forEach(el => {
   el.addEventListener("click", () => {
     const panel = el.getAttribute("data-admin-panel");
@@ -108,6 +129,7 @@ document.querySelectorAll("[data-admin-panel]").forEach(el => {
     if (panel === "learners") loadLearners();
     if (panel === "levels") loadLevelsPanel();
     if (panel === "activities") loadActivitiesPanel();
+    if (panel === "ai") initAiAssistant();
     if (panel === "lessons") loadLessonsPanel();
     if (panel === "placement") loadPlacementPanel();
     if (panel === "media") loadMediaPanel();
@@ -686,9 +708,15 @@ async function deleteActivity(id) {
   }
 }
 
-function openActivityEditor(activity, forceType) {
+function openActivityEditor(activity, forceType, aiPrefill) {
   const isNew = !activity;
   const type = activity ? activity.type : forceType;
+  // aiPrefill (optional): { title, payload } from the AI curriculum
+  // assistant. Only ever used for a brand-new activity, and only ever
+  // fills the editor for the admin to review -- nothing from the AI
+  // reaches Firestore until the admin presses this same Save button
+  // themselves, same as if they had typed it in by hand.
+  const source = activity || (aiPrefill ? { payload: aiPrefill.payload } : null);
   const levelId = document.getElementById("activityLevelSelect").value;
   const defaultXp = (activity && activity.xpReward) || DEFAULT_XP_BY_TYPE[type] || 10;
   const isRowType = type === "quiz" || type === "match" || type === "fill" ||
@@ -697,7 +725,7 @@ function openActivityEditor(activity, forceType) {
   let bodyHtml =
     '<h3 style="margin-bottom:16px;">' + (isNew ? "New " + ACTIVITY_TYPE_LABEL[type] : "Edit " + ACTIVITY_TYPE_LABEL[type]) + '</h3>' +
     '<div id="actEditorAlert"></div>' +
-    '<div class="field"><label>Title</label><input type="text" id="actTitleInput" value="' + escapeAttr(activity ? activity.title : "") + '"></div>' +
+    '<div class="field"><label>Title</label><input type="text" id="actTitleInput" value="' + escapeAttr(activity ? activity.title : (aiPrefill && aiPrefill.title) || "") + '"></div>' +
     '<div class="card-row" style="gap:12px;">' +
     '<div class="field" style="flex:1;"><label>Order</label><input type="number" id="actOrderInput" value="' + (activity ? activity.order : 0) + '"></div>' +
     '<div class="field" style="flex:1;"><label>EXP reward</label><input type="number" id="actXpInput" min="1" max="200" value="' + defaultXp + '"></div>' +
@@ -721,32 +749,32 @@ function openActivityEditor(activity, forceType) {
 
     if (isRowType) {
       if (type === "quiz") {
-        rows = activity && activity.payload && activity.payload.questions
-          ? activity.payload.questions.map(q => ({ text: q.text, options: q.options.slice(), correctIndex: q.correctIndex }))
+        rows = source && source.payload && source.payload.questions
+          ? source.payload.questions.map(q => ({ text: q.text, options: q.options.slice(), correctIndex: q.correctIndex }))
           : [{ text: "", options: ["", "", "", ""], correctIndex: 0 }];
       } else if (type === "match") {
-        rows = activity && activity.payload && activity.payload.pairs
-          ? activity.payload.pairs.map(p => ({ term: p.term, definition: p.definition }))
+        rows = source && source.payload && source.payload.pairs
+          ? source.payload.pairs.map(p => ({ term: p.term, definition: p.definition }))
           : [{ term: "", definition: "" }];
       } else if (type === "fill") {
-        rows = activity && activity.payload && activity.payload.items
-          ? activity.payload.items.map(i => ({ sentence: i.sentence, answer: i.answer }))
+        rows = source && source.payload && source.payload.items
+          ? source.payload.items.map(i => ({ sentence: i.sentence, answer: i.answer }))
           : [{ sentence: "", answer: "" }];
       } else if (type === "memoryFlip") {
-        rows = activity && activity.payload && activity.payload.pairs
-          ? activity.payload.pairs.map(p => ({ a: p.a, b: p.b }))
+        rows = source && source.payload && source.payload.pairs
+          ? source.payload.pairs.map(p => ({ a: p.a, b: p.b }))
           : [{ a: "", b: "" }];
       } else if (type === "wordScramble") {
-        rows = activity && activity.payload && activity.payload.words
-          ? activity.payload.words.map(w => ({ word: w.word, hint: w.hint || "" }))
+        rows = source && source.payload && source.payload.words
+          ? source.payload.words.map(w => ({ word: w.word, hint: w.hint || "" }))
           : [{ word: "", hint: "" }];
       } else if (type === "speedRound") {
-        rows = activity && activity.payload && activity.payload.statements
-          ? activity.payload.statements.map(st => ({ text: st.text, isTrue: !!st.isTrue }))
+        rows = source && source.payload && source.payload.statements
+          ? source.payload.statements.map(st => ({ text: st.text, isTrue: !!st.isTrue }))
           : [{ text: "", isTrue: true }];
       } else {
-        rows = activity && activity.payload && activity.payload.rounds
-          ? activity.payload.rounds.map(r => ({ word: r.word, correctEmoji: r.correctEmoji, decoyEmojis: (r.decoyEmojis || []).join(" ") }))
+        rows = source && source.payload && source.payload.rounds
+          ? source.payload.rounds.map(r => ({ word: r.word, correctEmoji: r.correctEmoji, decoyEmojis: (r.decoyEmojis || []).join(" ") }))
           : [{ word: "", correctEmoji: "", decoyEmojis: "" }];
       }
 
@@ -757,7 +785,7 @@ function openActivityEditor(activity, forceType) {
       typeBodyHost.innerHTML =
         (type === "speedRound"
           ? '<div class="field"><label>Time limit (seconds)</label><input type="number" id="speedSecondsInput" min="10" max="180" value="' +
-            (activity && activity.payload && activity.payload.seconds ? activity.payload.seconds : 30) + '"></div>'
+            (source && source.payload && source.payload.seconds ? source.payload.seconds : 30) + '"></div>'
           : "") +
         '<div id="actRowsHost"></div>' +
         '<button class="btn btn-secondary btn-sm" id="addRowBtn" type="button" style="margin-bottom:16px;">+ Add ' + ROW_ADD_LABEL[type] + '</button>';
@@ -963,7 +991,7 @@ function openActivityEditor(activity, forceType) {
       validate = () => (!flashcards.length ? "Add at least one card." : null);
 
     } else if (type === "listening" || type === "reading") {
-      listeningQuestions = activity && activity.payload && activity.payload.questions
+      listeningQuestions = source && source.payload && source.payload.questions
         ? activity.payload.questions.map(q => ({ text: q.text, options: q.options.slice(), correctIndex: q.correctIndex }))
         : [{ text: "", options: ["", "", "", ""], correctIndex: 0 }];
 
@@ -1526,3 +1554,160 @@ document.getElementById("savePlacementBtn").addEventListener("click", async () =
     document.querySelectorAll("input.pw-mask").forEach(el => { el.type = "password"; });
   }
 })();
+
+/* ---------------------------------------------------------
+   10. AI Curriculum Assistant (OpenRouter)
+
+   A chat that can draft activities in the exact same 7 row-based
+   formats the admin can already build by hand: quiz, word match,
+   fill in the blank, memory flip, word scramble, speed round, and
+   picture pop. flashcards, listening, and sentence builder use a
+   different, more free-form payload shape each and aren't wired
+   into this yet -- ask for one of the seven above.
+
+   Nothing the AI drafts touches Firestore directly. Every draft is
+   opened in the exact same editor modal used everywhere else in
+   this admin panel, pre-filled, for the admin to review, edit, and
+   press Save on themselves -- same human-in-the-loop guarantee as
+   the rest of this app.
+   --------------------------------------------------------- */
+const AI_ACTIVITY_TYPES = ["quiz", "match", "fill", "memoryFlip", "wordScramble", "speedRound", "picturePop"];
+
+const AI_SYSTEM_PROMPT =
+  "You are the curriculum-writing assistant inside JessEDU, the free English-learning site run by " +
+  "the Javanese English Speaking Society (JESS), a youth-led nonprofit teaching English to students " +
+  "in Indonesia, many of them complete beginners, some of them children in orphanages with limited or " +
+  "no other access to English education.\n\n" +
+  "You help staff draft learning activities. When asked to create one, reply with a short, friendly " +
+  "sentence describing what you made, then a single fenced JSON code block with this exact shape:\n\n" +
+  "{\"type\": one of " + JSON.stringify(AI_ACTIVITY_TYPES) + ", \"title\": \"a short activity title\", " +
+  "\"payload\": <matches the type, see below>}\n\n" +
+  "Payload shapes, one per type, follow EXACTLY:\n" +
+  "quiz: {\"questions\":[{\"text\":\"...\",\"options\":[\"a\",\"b\",\"c\",\"d\"],\"correctIndex\":0}]} (always exactly 4 options)\n" +
+  "match: {\"pairs\":[{\"term\":\"...\",\"definition\":\"...\"}]}\n" +
+  "fill: {\"items\":[{\"sentence\":\"uses ___ for the blank\",\"answer\":\"...\"}]}\n" +
+  "memoryFlip: {\"pairs\":[{\"a\":\"...\",\"b\":\"...\"}]} (a/b are the two matching cards, e.g. English word + Indonesian translation)\n" +
+  "wordScramble: {\"words\":[{\"word\":\"lowercase, no spaces\",\"hint\":\"optional short hint\"}]}\n" +
+  "speedRound: {\"statements\":[{\"text\":\"...\",\"isTrue\":true}],\"seconds\":30}\n" +
+  "picturePop: {\"rounds\":[{\"word\":\"...\",\"correctEmoji\":\"single emoji\",\"decoyEmojis\":[\"emoji\",\"emoji\",\"emoji\"]}]}\n\n" +
+  "Rules: never use em dashes anywhere in any text you write. Keep language simple, beginner-friendly, " +
+  "and appropriate for children. Do not invent a type outside the list above. Only include the JSON block " +
+  "when the person is actually asking you to create or revise an activity; for general questions or small " +
+  "talk, just reply normally with no JSON block at all.";
+
+let aiMessages = [];
+let aiRequestCount = 0;
+
+function aiChatLog(){ return document.getElementById("aiChatLog"); }
+
+function renderAiMessage(role, text, draft) {
+  const log = aiChatLog();
+  const bubble = document.createElement("div");
+  bubble.className = "ai-bubble ai-bubble-" + role;
+  const p = document.createElement("p");
+  p.textContent = text;
+  bubble.appendChild(p);
+  if (draft) {
+    const card = document.createElement("div");
+    card.className = "ai-draft-card";
+    card.innerHTML =
+      '<div><strong>' + escapeHtml(draft.title || "Untitled") + '</strong>' +
+      '<span class="ai-draft-type">' + escapeHtml(ACTIVITY_TYPE_LABEL[draft.type] || draft.type) + '</span></div>' +
+      '<button type="button" class="btn btn-outline btn-sm">Open in editor</button>';
+    card.querySelector("button").addEventListener("click", () => {
+      openActivityEditor(null, draft.type, { title: draft.title, payload: draft.payload });
+    });
+    bubble.appendChild(card);
+  }
+  log.appendChild(bubble);
+  log.scrollTop = log.scrollHeight;
+}
+
+// Pulls the first ```json ... ``` block out of the reply and validates it
+// against the known schemas above. Returns null (not an error) if the
+// reply simply didn't include one, which is expected for plain chat.
+function extractAiDraft(text) {
+  const match = text.match(/```json\s*([\s\S]*?)```/i);
+  if (!match) return null;
+  let parsed;
+  try { parsed = JSON.parse(match[1]); } catch (e) { return null; }
+  if (!parsed || AI_ACTIVITY_TYPES.indexOf(parsed.type) === -1 || !parsed.payload) return null;
+  return { type: parsed.type, title: String(parsed.title || "").slice(0, 120), payload: parsed.payload };
+}
+
+function stripAiDraftFence(text) {
+  return text.replace(/```json\s*[\s\S]*?```/i, "").trim();
+}
+
+async function callOpenRouter(messages) {
+  const key = window.OPENROUTER_API_KEY;
+  if (!key) throw new Error("No OpenRouter API key is configured (firebase-config.js).");
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + key,
+      "Content-Type": "application/json",
+      "HTTP-Referer": location.origin,
+      "X-Title": "JessEDU Curriculum Assistant"
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-4o-mini",
+      messages,
+      temperature: 0.7,
+      max_tokens: 1400
+    })
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error("OpenRouter request failed (" + res.status + "). " + detail.slice(0, 300));
+  }
+  const data = await res.json();
+  const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (!text) throw new Error("The AI returned an empty response.");
+  return text;
+}
+
+let __aiInited = false;
+function initAiAssistant() {
+  if (__aiInited) return;
+  __aiInited = true;
+  aiMessages = [{ role: "system", content: AI_SYSTEM_PROMPT }];
+  renderAiMessage("assistant",
+    "Tell me what you would like to teach. For example: \"a beginner quiz about fruit, five questions\" or \"a word match for family members, English to Indonesian\".");
+
+  document.getElementById("aiChatForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = document.getElementById("aiChatInput");
+    const text = input.value.trim();
+    if (!text) return;
+    const sendBtn = document.getElementById("aiChatSendBtn");
+    renderAiMessage("user", text);
+    input.value = "";
+    setBtnLoading(sendBtn, true);
+
+    aiRequestCount++;
+    aiMessages.push({ role: "user", content: text });
+
+    // Every 10th request, re-inject a fresh copy of the system prompt
+    // as its own message immediately before this one. Long chat
+    // sessions can drift away from instructions given only once at
+    // the very start; this periodically re-grounds the model in the
+    // exact schema and rules without restarting the conversation.
+    const outgoing = aiMessages.slice();
+    if (aiRequestCount % 10 === 0) {
+      outgoing.splice(outgoing.length - 1, 0, { role: "system", content: "Reminder of your instructions:\n\n" + AI_SYSTEM_PROMPT });
+    }
+
+    try {
+      const reply = await callOpenRouter(outgoing);
+      aiMessages.push({ role: "assistant", content: reply });
+      const draft = extractAiDraft(reply);
+      renderAiMessage("assistant", stripAiDraftFence(reply) || "Here is a draft:", draft);
+    } catch (err) {
+      console.warn("JessEDU: AI assistant request failed.", err);
+      renderAiMessage("assistant", (err && err.message) || "Something went wrong reaching the AI. Please try again.");
+    } finally {
+      setBtnLoading(sendBtn, false, "Send");
+    }
+  });
+}

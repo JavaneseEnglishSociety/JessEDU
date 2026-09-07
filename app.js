@@ -1,3 +1,119 @@
+/* Translate button is wired up FIRST, before any Firebase code below,
+   so it keeps working even if Firebase fails to initialize (network
+   issue, firewall, ad-blocker). An uncaught error partway through this
+   file used to silently stop every later top-level statement from
+   running at all, including features with nothing to do with Firebase. */
+/* ---------------------------------------------------------
+   Translate button (English -> Indonesian, obvious floating FAB)
+
+   Uses Google Translate's public web-client endpoint rather than the
+   official Cloud Translation API, since the official API needs a
+   billing account and a secret key -- and a secret key can't stay
+   secret in a static site's own JavaScript anyway (anyone can
+   view-source it). This endpoint needs no key and works from any
+   browser. It is not an officially supported public API, so if
+   Google ever rate-limits or changes it, translation just silently
+   stops working rather than breaking the page: every call is
+   wrapped so a failure leaves the original English text in place.
+   --------------------------------------------------------- */
+const translateCache = new Map();
+const translateInFlight = new Map();
+let pageIsTranslated = false;
+
+async function translateOneString(text) {
+  if (!text || !text.trim()) return text;
+  if (translateCache.has(text)) return translateCache.get(text);
+  if (translateInFlight.has(text)) return translateInFlight.get(text);
+  const promise = (async () => {
+    try {
+      const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=id&dt=t&q=" + encodeURIComponent(text);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("translate failed: " + res.status);
+      const data = await res.json();
+      const translated = (data[0] || []).map((chunk) => chunk[0]).join("");
+      const finalText = translated || text;
+      translateCache.set(text, finalText);
+      return finalText;
+    } catch (e) {
+      console.warn("JessEDU: translation failed for one piece of text; leaving it in English.", e);
+      return text;
+    } finally {
+      translateInFlight.delete(text);
+    }
+  })();
+  translateInFlight.set(text, promise);
+  return promise;
+}
+
+// Walks every visible text node inside a container, stashes the
+// original English on the node itself (so toggling back needs no
+// re-fetch), and swaps in the Indonesian version once it resolves.
+function collectTextNodes(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const tag = node.parentElement && node.parentElement.tagName;
+      if (tag === "SCRIPT" || tag === "STYLE" || tag === "INPUT" || tag === "TEXTAREA") return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  return nodes;
+}
+
+async function translateVisibleArea() {
+  const containers = [
+    document.getElementById("dashboard"),
+    ...document.querySelectorAll("#modalHost .modal-panel")
+  ].filter(Boolean);
+
+  const fab = document.getElementById("translateFab");
+  const label = document.getElementById("translateFabLabel");
+  fab.classList.add("is-busy");
+
+  if (pageIsTranslated) {
+    // Toggling back to English needs no network call at all -- every
+    // translated node already has its original English text stashed
+    // in a data attribute from the pass that translated it.
+    containers.forEach((root) => {
+      collectTextNodes(root).forEach((node) => {
+        const original = node.__jessOriginal;
+        if (original !== undefined) node.nodeValue = original;
+      });
+    });
+    pageIsTranslated = false;
+    label.textContent = "EN → ID";
+    fab.classList.remove("is-busy");
+    return;
+  }
+
+  const jobs = [];
+  containers.forEach((root) => {
+    collectTextNodes(root).forEach((node) => {
+      if (node.__jessOriginal === undefined) node.__jessOriginal = node.nodeValue;
+      const original = node.__jessOriginal;
+      jobs.push(
+        translateOneString(original).then((translated) => {
+          // Guard against the node having been re-rendered away, or the
+          // user having toggled back to English before this resolved.
+          if (node.isConnected) node.nodeValue = translated;
+        })
+      );
+    });
+  });
+
+  await Promise.all(jobs);
+  pageIsTranslated = true;
+  label.textContent = "ID → EN";
+  fab.classList.remove("is-busy");
+}
+
+document.getElementById("translateFab").addEventListener("click", () => {
+  translateVisibleArea();
+});
+
 /* =========================================================
    app.js — JESS public site logic
    ========================================================= */
@@ -801,7 +917,11 @@ function openLessonViewer(lesson) {
 
   const bodyHtml =
     '<div class="lesson-viewer-head"><p class="eyebrow">' + escapeHtml(lesson.category || "") + ' · ' + escapeHtml(lesson.difficulty || "") + ' · ⏱️ ' + (lesson.estimatedMinutes || 1) + ' min</p>' +
-    '<h2 style="margin:0;">' + escapeHtml(lesson.title) + '</h2></div>' +
+    '<h2 style="margin:0 0 12px;">' + escapeHtml(lesson.title) + '</h2>' +
+    '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+    '<button type="button" class="btn btn-outline btn-sm" id="lessonListenBtn">🔊 Listen</button>' +
+    '<button type="button" class="btn btn-outline btn-sm" id="lessonSaveOfflineBtn">⬇ Save for offline</button>' +
+    '</div></div>' +
     (lesson.blocks || []).map(renderLessonBlock).join("") +
     (!hasQuizBlock ? '<div style="margin-top:24px; text-align:center;">' +
       (alreadyDone
@@ -817,8 +937,72 @@ function openLessonViewer(lesson) {
       await markLessonComplete(lesson, 1);
       closeModal();
     });
+    wireLessonFreeTools(lesson);
   });
 }
+
+// Pulls plain, readable text out of a lesson's blocks (stripping HTML
+// from rich-text/tip/warning blocks) for both the "Listen" button and
+// the offline text download, since neither should try to read or save
+// raw markup.
+function lessonPlainText(lesson) {
+  const parts = [lesson.title, ""];
+  (lesson.blocks || []).forEach((b) => {
+    if (b.type === "heading") parts.push(b.text, "");
+    else if (b.type === "richtext" || b.type === "tip" || b.type === "warning") {
+      const tmp = document.createElement("div");
+      tmp.innerHTML = b.html || "";
+      parts.push(tmp.textContent.trim(), "");
+    } else if (b.type === "accordion") {
+      (b.items || []).forEach((item) => parts.push(item.title, item.content, ""));
+    }
+  });
+  return parts.join("\n").trim();
+}
+
+// Text-to-speech ("Listen") and a plain-text download ("Save for
+// offline") are both genuinely free: the first uses the browser's own
+// SpeechSynthesis API (no server, no cost, works even with no internet
+// once the page is loaded), and the second is just a client-side file
+// download. Built with students in mind who may have limited or
+// unreliable internet access, or want to practise listening without
+// needing a fluent speaker nearby.
+function wireLessonFreeTools(lesson) {
+  const listenBtn = document.getElementById("lessonListenBtn");
+  if (listenBtn && "speechSynthesis" in window) {
+    listenBtn.addEventListener("click", () => {
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        listenBtn.textContent = "🔊 Listen";
+        return;
+      }
+      const utter = new SpeechSynthesisUtterance(lessonPlainText(lesson));
+      utter.lang = "en-US";
+      utter.rate = 0.92; // slightly slower than default: easier to follow for a learner
+      utter.onend = () => { listenBtn.textContent = "🔊 Listen"; };
+      utter.onerror = () => { listenBtn.textContent = "🔊 Listen"; };
+      window.speechSynthesis.speak(utter);
+      listenBtn.textContent = "⏸ Stop";
+    });
+  } else if (listenBtn) {
+    listenBtn.disabled = true;
+    listenBtn.title = "Text-to-speech isn't supported in this browser.";
+  }
+
+  const saveBtn = document.getElementById("lessonSaveOfflineBtn");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", () => {
+      const blob = new Blob([lessonPlainText(lesson)], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = lesson.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".txt";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+}
+
 
 /* ---------------------------------------------------------
    10. Activity modal runner — real modal overlay is OK here
@@ -1792,3 +1976,4 @@ async function checkPreviewParams() {
     if (previewActivityId || previewLessonId) showToast("Couldn't load preview: " + describeFirebaseError(err), "error");
   }
 }
+
