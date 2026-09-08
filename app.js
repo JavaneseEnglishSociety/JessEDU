@@ -368,11 +368,24 @@ function pointsForXp(xp) { return Math.max(1, Math.round(xp / 2)); }
 /* ---------------------------------------------------------
    7. Completing an activity
    --------------------------------------------------------- */
+// Turns a fixed configured reward into a small random range around it
+// (roughly ±20%, always at least 1 more or less than the base so a
+// repeat action doesn't always feel identical) rather than the exact
+// same number every single time. The average across many completions
+// still lands close to what the admin configured -- this adds variety,
+// it doesn't let anyone farm more XP than intended.
+function randomizeXp(baseXp) {
+  const variance = Math.max(1, Math.round(baseXp * 0.2));
+  const roll = baseXp + Math.floor(Math.random() * (variance * 2 + 1)) - variance;
+  return Math.max(1, roll);
+}
+
 async function completeActivity(activityId, scoreFraction, xpReward, itemTitle) {
   // Clamp to the same ceiling firestore.rules enforces server-side
   // (200 XP / 100 points per completion) so a misconfigured reward
   // never gets silently rejected by the write rule.
-  const xp = Math.max(1, Math.min(200, xpReward != null ? xpReward : XP_PER_ACTIVITY));
+  const baseXp = Math.max(1, Math.min(200, xpReward != null ? xpReward : XP_PER_ACTIVITY));
+  const xp = Math.max(1, Math.min(200, randomizeXp(baseXp)));
   const points = Math.max(1, Math.min(100, pointsForXp(xp)));
 
   if (auth.currentUser) {
@@ -410,6 +423,11 @@ async function completeActivity(activityId, scoreFraction, xpReward, itemTitle) 
     state.lastActiveDate = todayStr();
     setGuestState(state);
   }
+  // The actual awarded amounts, post-randomization -- callers must use
+  // THESE for any on-screen message, not whatever base xpReward they
+  // passed in, or the toast would show a different number than what
+  // actually got saved.
+  return { xp, points };
 }
 
 /* ---------------------------------------------------------
@@ -925,14 +943,124 @@ async function markLessonComplete(lesson, scoreFraction) {
   if (completed[lesson.id]) { showToast("Already completed — no extra XP for a repeat.", "info"); return; }
   const xp = lesson.xpReward || 25;
   try {
-    await completeActivity(lesson.id, scoreFraction != null ? scoreFraction : 1, xp, lesson.title);
-    showToast("+" + xp + " XP, +" + pointsForXp(xp) + " JESS Points!", "success");
+    const awarded = await completeActivity(lesson.id, scoreFraction != null ? scoreFraction : 1, xp, lesson.title);
+    showToast("+" + awarded.xp + " XP, +" + awarded.points + " JESS Points!", "success");
     await refreshProfileCache();
     updateSidebarStats();
     renderLessonGrid();
+    refreshProgressViewsIfVisible();
+    closeModal();
   } catch (err) {
     showToast(describeFirebaseError(err), "error");
   }
+}
+
+// Both completion paths (finishing an activity, finishing a lesson) used
+// to only refresh the ONE view they came from -- the level path, or the
+// lesson grid. Anything showing completion elsewhere (the per-level
+// progress bars, the finished-activities table, the XP ledger) stayed
+// stale until the whole page was reloaded, which is what "needs a
+// refresh to show complete" actually was. These are cheap to call and
+// safe to call even when their panel is hidden, so every completion now
+// refreshes all of them, not just the one screen it happened on.
+function refreshProgressViewsIfVisible() {
+  if (typeof renderLevelProgress === "function") renderLevelProgress();
+  if (typeof renderCompletedList === "function") renderCompletedList();
+  if (typeof renderXpHistory === "function") renderXpHistory();
+}
+
+/* ---------------------------------------------------------
+   Benefits shop — spend JESS Points on real, staff-fulfilled
+   benefits. Items are admin-managed content (their own Firestore
+   collection, same pattern as levels/activities); a redemption
+   deducts points from the learner's own profile in a transaction and
+   writes a durable record for staff to see and follow up on. This is
+   NOT an automatic digital reward -- the point is real-world benefits
+   (extra break time, a shoutout, first pick of something), so a
+   redemption is a request staff need to act on, not something the
+   app can fulfil by itself.
+   --------------------------------------------------------- */
+async function fetchPublishedShopItems() {
+  const snap = await db.collection("shopItems").where("published", "==", true).get();
+  const items = [];
+  snap.forEach((doc) => items.push({ id: doc.id, ...doc.data() }));
+  items.sort((a, b) => (a.order || 0) - (b.order || 0));
+  return items;
+}
+
+async function redeemShopItem(item) {
+  if (!auth.currentUser) {
+    showToast("Create a free account to save up and spend JESS Points.", "info");
+    return;
+  }
+  const uid = auth.currentUser.uid;
+  const profileRef = db.collection("users").doc(uid);
+  const redemptionRef = db.collection("redemptions").doc();
+  try {
+    await db.runTransaction(async (tx) => {
+      const profileSnap = await tx.get(profileRef);
+      if (!profileSnap.exists) throw new Error("This account has no learner profile yet.");
+      const current = profileSnap.data();
+      if ((current.jessPoints || 0) < item.cost) {
+        throw Object.assign(new Error("Not enough JESS Points yet."), { code: "insufficient-points" });
+      }
+      tx.update(profileRef, { jessPoints: current.jessPoints - item.cost });
+      tx.set(redemptionRef, {
+        userId: uid,
+        username: current.username || current.displayName || "",
+        itemId: item.id,
+        itemTitle: item.title,
+        cost: item.cost,
+        redeemedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        fulfilled: false,
+      });
+    });
+    showToast("Redeemed \"" + item.title + "\"! Staff will follow up with you.", "success");
+    await refreshProfileCache();
+    updateSidebarStats();
+    renderShopGrid();
+  } catch (err) {
+    if (err.code === "insufficient-points") showToast("You don't have enough JESS Points for this yet.", "info");
+    else showToast(describeFirebaseError(err), "error");
+  }
+}
+
+let __shopItemsCache = [];
+async function loadShopPanel() {
+  const host = document.getElementById("shopGridHost");
+  host.innerHTML = '<div class="loading-block"><span class="spinner"></span> Loading the shop…</div>';
+  try {
+    __shopItemsCache = await fetchPublishedShopItems();
+    renderShopGrid();
+  } catch (err) {
+    host.innerHTML = "";
+    renderAlert(document.getElementById("dashAlertHost"), describeFirebaseError(err), { onRetry: loadShopPanel });
+  }
+}
+
+function renderShopGrid() {
+  const host = document.getElementById("shopGridHost");
+  if (!__shopItemsCache.length) {
+    host.innerHTML = '<div class="empty-state"><h3>The shop is empty right now</h3><p>Check back soon — staff are still stocking it.</p></div>';
+    return;
+  }
+  const profile = window.__jessProfileCache || (auth.currentUser ? null : getGuestState());
+  const balance = profile ? (profile.jessPoints || 0) : 0;
+  host.innerHTML = '<div class="shop-grid">' + __shopItemsCache.map((item) => {
+    const canAfford = balance >= item.cost;
+    return '<div class="shop-card">' +
+      '<div class="shop-card-icon">' + escapeHtml(item.icon || "🎁") + '</div>' +
+      '<h4>' + escapeHtml(item.title) + '</h4>' +
+      '<p class="shop-card-desc">' + escapeHtml(item.description || "") + '</p>' +
+      '<div class="shop-card-foot">' +
+      '<span class="shop-cost">' + item.cost + ' JP</span>' +
+      '<button type="button" class="btn btn-solid btn-sm" data-redeem="' + item.id + '"' + (canAfford ? "" : " disabled") + '>' +
+      (canAfford ? "Redeem" : "Not enough JP") + '</button>' +
+      '</div></div>';
+  }).join("") + '</div>';
+  host.querySelectorAll("[data-redeem]").forEach((btn) =>
+    btn.addEventListener("click", () => redeemShopItem(__shopItemsCache.find((i) => i.id === btn.getAttribute("data-redeem"))))
+  );
 }
 
 function openLessonViewer(lesson) {
@@ -1350,21 +1478,41 @@ function activityXpReward(activity) {
 function openActivityModal(activity) {
   const completed = getCompletedSet();
   if (completed[activity.id]) {
+    // Previously this was a dead end: a plain "you already did this"
+    // message with no way to actually see the questions/content again.
+    // Reviewing what you already learned is a normal, useful thing to
+    // want to do, so this now offers to actually run the activity again
+    // -- renderActivityResult (below) knows to skip trying to claim XP
+    // a second time when it gets there, showing a friendly review
+    // message instead of an "already completed" error.
     openModal(
       '<div class="result-banner pass"><div class="eyebrow">Completed</div>' +
       '<h3>' + escapeHtml(activity.title) + '</h3>' +
-      '<p style="color:var(--ink-soft)">You\'ve already earned XP for this activity.</p></div>'
+      '<p style="color:var(--ink-soft)">You\'ve already earned XP for this one. You can look through it again any time.</p>' +
+      '<div style="display:flex; gap:10px; justify-content:center; margin-top:14px;">' +
+      '<button class="btn btn-primary" id="reviewActivityBtn">Review it again</button>' +
+      '<button class="btn btn-secondary" id="reviewCloseBtn">Close</button>' +
+      '</div></div>'
     );
+    document.getElementById("reviewCloseBtn").addEventListener("click", closeModal);
+    document.getElementById("reviewActivityBtn").addEventListener("click", () => launchActivityRunner(activity));
     return;
   }
+  launchActivityRunner(activity);
+}
+
+function launchActivityRunner(activity) {
   const meta = ACTIVITY_TYPE_META[activity.type] || { label: activity.type, icon: "•" };
   const xp = activityXpReward(activity);
+  const isReview = !!getCompletedSet()[activity.id];
   openModal(
-    '<p class="eyebrow">Not started</p>' +
+    '<p class="eyebrow">' + (isReview ? "Reviewing" : "Not started") + '</p>' +
     '<h3 style="margin-bottom:6px;">' + (meta.icon || "") + " " + escapeHtml(activity.title) + '</h3>' +
     '<p style="color:var(--ink-soft); margin-bottom:18px;">' + meta.label + (activity.required === false ? " · Optional" : "") + '</p>' +
-    '<div class="alert alert-info">Completing this activity will reward <strong>' + xp + ' EXP</strong> (+' + pointsForXp(xp) + ' JESS Points).</div>' +
-    '<button class="btn btn-primary btn-block" id="activityStartBtn" style="margin-top:8px;">Start</button>',
+    (isReview
+      ? '<div class="alert alert-info">You\'ve already completed this one — this is just for review, no extra EXP this time.</div>'
+      : '<div class="alert alert-info">Completing this activity will reward <strong>' + xp + ' EXP</strong> (+' + pointsForXp(xp) + ' JESS Points).</div>') +
+    '<button class="btn btn-primary btn-block" id="activityStartBtn" style="margin-top:8px;">' + (isReview ? "Review" : "Start") + '</button>',
     () => {
       document.getElementById("activityStartBtn").addEventListener("click", () => {
         if (activity.type === "quiz") runQuizActivity(activity);
@@ -1388,18 +1536,29 @@ function renderActivityResult(activity, correctCount, total) {
   const fraction = total > 0 ? correctCount / total : 0;
   const passed = fraction >= 0.6;
   const xp = activityXpReward(activity);
+  const isReview = !!getCompletedSet()[activity.id];
   const host = document.getElementById("modalHost");
   const panel = host.querySelector(".modal-panel");
 
   const finish = async () => {
+    if (isReview) {
+      // Already completed before this run started -- this whole playthrough
+      // was a review, not a real attempt. Calling completeActivity() again
+      // would just throw "Already completed", so skip straight to a
+      // friendly close instead of trying to claim a second reward.
+      showToast("Nice review! No extra EXP for a repeat, but good practice.", "info");
+      closeModal();
+      return;
+    }
     if (!passed) { closeModal(); renderLevelPath(); return; }
     try {
-      await completeActivity(activity.id, fraction, xp, activity.title);
-      showToast("+" + xp + " XP, +" + pointsForXp(xp) + " JESS Points!", "success");
+      const awarded = await completeActivity(activity.id, fraction, xp, activity.title);
+      showToast("+" + awarded.xp + " XP, +" + awarded.points + " JESS Points!", "success");
       closeModal();
       await refreshProfileCache();
       updateSidebarStats();
       renderLevelPath();
+      refreshProgressViewsIfVisible();
     } catch (err) {
       renderAlert(panel.querySelector(".result-alert-host"), describeFirebaseError(err));
     }
@@ -1408,14 +1567,15 @@ function renderActivityResult(activity, correctCount, total) {
   panel.innerHTML =
     '<button class="modal-close" id="modalCloseBtn" aria-label="Close">✕</button>' +
     '<div class="result-banner ' + (passed ? "pass" : "fail") + '">' +
-    '<div class="eyebrow">' + (passed ? "Nice work!" : "So close!") + '</div>' +
+    '<div class="eyebrow">' + (isReview ? "Review complete" : (passed ? "Nice work!" : "So close!")) + '</div>' +
     '<div class="big-score">' + correctCount + '/' + total + '</div>' +
     '<p style="color:var(--ink-soft)">' +
-    (passed ? "You passed and earned " + xp + " EXP for this activity." : "You need 60% correct to earn XP. Give it another try!") +
+    (isReview ? "Good review! No new EXP since you've already completed this one." :
+     passed ? "You passed! Claim to earn around " + xp + " EXP for this activity." : "You need 60% correct to earn XP. Give it another try!") +
     '</p><div class="result-alert-host"></div>' +
     '<div style="display:flex; gap:10px; justify-content:center; margin-top:10px;">' +
     (passed
-      ? '<button class="btn btn-primary" id="resultDoneBtn">Claim rewards</button>'
+      ? '<button class="btn btn-primary" id="resultDoneBtn">' + (isReview ? "Done" : "Claim rewards") + '</button>'
       : '<button class="btn btn-primary" id="resultRetryBtn">Try again</button><button class="btn btn-secondary" id="resultCloseBtn">Close</button>') +
     '</div></div>';
 
@@ -2146,6 +2306,7 @@ document.querySelectorAll("[data-panel]").forEach(el => {
     if (panel === "progress") { renderLevelProgress(); renderCompletedList(); }
     if (panel === "history") renderXpHistory();
     if (panel === "media") loadMediaLibrary();
+    if (panel === "shop") loadShopPanel();
     if (panel === "lessons") loadLessonLibrary();
     __presencePage = panel === "paths" ? "dashboard" : panel;
   });
