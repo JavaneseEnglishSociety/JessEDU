@@ -600,16 +600,32 @@ function renderLevelPath() {
     if (state !== "locked" && acts.length > 0) {
       const chipRow = document.createElement("div");
       chipRow.className = "activity-chip-row";
-      acts.forEach(act => {
+      acts.forEach((act, actIndex) => {
         const chip = document.createElement("button");
         const done = !!completed[act.id];
-        chip.className = "activity-chip" + (done ? " done" : "");
+        // Within-level sequencing: this was the actual remaining gap.
+        // Levels already locked each other, and the standalone Lesson
+        // Library got the same treatment, but every activity INSIDE one
+        // unlocked level was always equally clickable regardless of
+        // order -- activity 3 was reachable before 1 and 2 were done.
+        // Optional activities don't block the ones after them, since
+        // they're explicitly marked as not required.
+        const prevRequired = acts.slice(0, actIndex).filter((a) => a.required !== false);
+        const locked = prevRequired.length > 0 && !prevRequired.every((a) => completed[a.id]);
+        chip.className = "activity-chip" + (done ? " done" : "") + (locked ? " locked" : "");
         chip.type = "button";
         const meta = ACTIVITY_TYPE_META[act.type] || { label: act.type, color: "var(--ink-soft)", icon: "•" };
         const isOptional = act.required === false;
-        chip.innerHTML = '<span class="type-dot" style="background:' + meta.color + '"></span>' +
-          (meta.icon || "") + " " + escapeHtml(act.title) + (isOptional ? ' <span style="opacity:0.6; font-size:0.75em;">(optional)</span>' : "") + (done ? " ✓" : "");
-        chip.addEventListener("click", () => openActivityModal(act));
+        chip.innerHTML = (locked ? "🔒 " : ('<span class="type-dot" style="background:' + meta.color + '"></span>')) +
+          (locked ? "" : (meta.icon || "") + " ") + escapeHtml(act.title) + (isOptional ? ' <span style="opacity:0.6; font-size:0.75em;">(optional)</span>' : "") + (done ? " ✓" : "");
+        chip.addEventListener("click", () => {
+          if (locked) {
+            const blocker = prevRequired.find((a) => !completed[a.id]);
+            showToast("Complete \"" + (blocker ? blocker.title : "the previous activity") + "\" first to unlock this one.", "info");
+            return;
+          }
+          openActivityModal(act);
+        });
         chipRow.appendChild(chip);
       });
       card.appendChild(chipRow);
@@ -2540,4 +2556,3 @@ async function checkPreviewParams() {
     if (previewActivityId || previewLessonId) showToast("Couldn't load preview: " + describeFirebaseError(err), "error");
   }
 }
-
