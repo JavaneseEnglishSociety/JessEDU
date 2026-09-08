@@ -625,13 +625,14 @@ async function loadActivitiesList() {
       return;
     }
     host.innerHTML = acts.map((a, i) =>
-      '<div class="card" draggable="true" data-drag-act="' + a.id + '" data-drag-index="' + i + '" style="cursor:grab;">' +
+      '<div class="card" data-act-id="' + a.id + '">' +
       '<div class="card-row">' +
-      '<div style="display:flex; align-items:center; gap:10px;"><span style="color:var(--ink-soft);">⠿</span><div>' +
-      '<h3 style="margin-bottom:2px;">' + escapeHtml(a.title) + ' <span class="badge ' + (a.published ? "badge-published" : "badge-draft") + '">' + (a.published ? "Published" : "Draft") + '</span>' +
+      '<div><h3 style="margin-bottom:2px;">' + escapeHtml(a.title) + ' <span class="badge ' + (a.published ? "badge-published" : "badge-draft") + '">' + (a.published ? "Published" : "Draft") + '</span>' +
       (a.required === false ? ' <span class="badge badge-draft">Optional</span>' : ' <span class="badge badge-published">Required</span>') + '</h3>' +
-      '<p style="color:var(--ink-soft); margin:0;">' + (ACTIVITY_TYPE_LABEL[a.type] || a.type) + ' · Order ' + (a.order || 0) + ' · ⚡ ' + (a.xpReward || DEFAULT_XP_BY_TYPE[a.type] || 10) + ' EXP</p></div></div>' +
+      '<p style="color:var(--ink-soft); margin:0;">' + (ACTIVITY_TYPE_LABEL[a.type] || a.type) + ' · Order ' + (a.order || 0) + ' · ⚡ ' + (a.xpReward || DEFAULT_XP_BY_TYPE[a.type] || 10) + ' EXP</p></div>' +
       '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+      (i > 0 ? '<button class="btn btn-ghost btn-sm" data-move-act-up="' + a.id + '" title="Move up">↑</button>' : '') +
+      (i < acts.length - 1 ? '<button class="btn btn-ghost btn-sm" data-move-act-down="' + a.id + '" title="Move down">↓</button>' : '') +
       '<button class="btn btn-ghost btn-sm" data-preview-act="' + a.id + '">Preview</button>' +
       '<button class="btn btn-secondary btn-sm" data-dup-act="' + a.id + '">Duplicate</button>' +
       '<button class="btn btn-secondary btn-sm" data-edit-act="' + a.id + '">Edit</button>' +
@@ -650,10 +651,35 @@ async function loadActivitiesList() {
     host.querySelectorAll("[data-preview-act]").forEach(btn =>
       btn.addEventListener("click", () => window.open("index.html?previewActivityId=" + btn.getAttribute("data-preview-act"), "_blank"))
     );
-    wireDragReorder(host, "[data-drag-act]", "data-drag-act", async (orderedIds) => {
-      await Promise.all(orderedIds.map((id, i) => db.collection("activities").doc(id).update({ order: i })));
+    // Reorder via explicit Up/Down buttons rather than HTML5 drag-and-drop:
+    // dragging a whole card (no dedicated handle) is exactly the kind of
+    // interaction that behaves unreliably on iPad Safari's touch
+    // implementation of the drag API, which is what "can't reorder" was.
+    // Swapping two activities' `order` values and reloading the list is
+    // simple, reliable everywhere, and matches the button style already
+    // used for reordering elsewhere in this admin panel.
+    host.querySelectorAll("[data-move-act-up]").forEach(btn => btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-move-act-up");
+      const i = acts.findIndex(a => a.id === id);
+      if (i <= 0) return;
+      const a = acts[i], b = acts[i - 1];
+      await Promise.all([
+        db.collection("activities").doc(a.id).update({ order: b.order || 0 }),
+        db.collection("activities").doc(b.id).update({ order: a.order || 0 })
+      ]);
       loadActivitiesList();
-    });
+    }));
+    host.querySelectorAll("[data-move-act-down]").forEach(btn => btn.addEventListener("click", async () => {
+      const id = btn.getAttribute("data-move-act-down");
+      const i = acts.findIndex(a => a.id === id);
+      if (i === -1 || i >= acts.length - 1) return;
+      const a = acts[i], b = acts[i + 1];
+      await Promise.all([
+        db.collection("activities").doc(a.id).update({ order: b.order || 0 }),
+        db.collection("activities").doc(b.id).update({ order: a.order || 0 })
+      ]);
+      loadActivitiesList();
+    }));
   } catch (err) {
     host.innerHTML = "";
     renderAlert(document.getElementById("adminAlertHost"), describeFirebaseError(err), { onRetry: loadActivitiesList });
@@ -1142,11 +1168,13 @@ function renderLessonsList() {
     host.innerHTML = '<div class="empty-state"><h3>No lessons yet</h3><p>Click "+ New lesson" to build your first one.</p></div>';
     return;
   }
-  host.innerHTML = items.map(l =>
+  host.innerHTML = items.map((l, i) =>
     '<div class="card"><div class="card-row">' +
     '<div><h3 style="margin-bottom:2px;">' + escapeHtml(l.title) + ' <span class="badge ' + (l.published ? "badge-published" : "badge-draft") + '">' + (l.published ? "Published" : "Draft") + '</span></h3>' +
     '<p style="color:var(--ink-soft); margin:0;">' + escapeHtml(l.category || "") + ' · ' + escapeHtml(l.difficulty || "") + ' · ' + (l.blocks || []).length + ' blocks · ⏱️ ' + (l.estimatedMinutes || 1) + ' min · ⚡ ' + (l.xpReward || 25) + ' EXP</p></div>' +
     '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+    (i > 0 ? '<button class="btn btn-ghost btn-sm" data-move-lesson-up="' + l.id + '" title="Move up">↑</button>' : '') +
+    (i < items.length - 1 ? '<button class="btn btn-ghost btn-sm" data-move-lesson-down="' + l.id + '" title="Move down">↓</button>' : '') +
     '<button class="btn btn-ghost btn-sm" data-preview-lesson="' + l.id + '">Preview</button>' +
     '<button class="btn btn-secondary btn-sm" data-dup-lesson="' + l.id + '">Duplicate</button>' +
     '<button class="btn btn-secondary btn-sm" data-edit-lesson="' + l.id + '">Edit</button>' +
@@ -1165,6 +1193,32 @@ function renderLessonsList() {
   host.querySelectorAll("[data-dup-lesson]").forEach(btn =>
     btn.addEventListener("click", () => duplicateLesson(__allLessonsAdminCache.find(l => l.id === btn.getAttribute("data-dup-lesson"))))
   );
+  // Lessons had no reorder mechanism at all before this -- not even
+  // broken drag -- just a sort-by-`order` field nothing ever changed.
+  // Swapping adjacent `order` values via explicit buttons, matching
+  // the same fix just applied to Activities.
+  host.querySelectorAll("[data-move-lesson-up]").forEach(btn => btn.addEventListener("click", async () => {
+    const id = btn.getAttribute("data-move-lesson-up");
+    const i = items.findIndex(l => l.id === id);
+    if (i <= 0) return;
+    const a = items[i], b = items[i - 1];
+    await Promise.all([
+      db.collection("lessons").doc(a.id).update({ order: b.order || 0 }),
+      db.collection("lessons").doc(b.id).update({ order: a.order || 0 })
+    ]);
+    loadLessonsPanel();
+  }));
+  host.querySelectorAll("[data-move-lesson-down]").forEach(btn => btn.addEventListener("click", async () => {
+    const id = btn.getAttribute("data-move-lesson-down");
+    const i = items.findIndex(l => l.id === id);
+    if (i === -1 || i >= items.length - 1) return;
+    const a = items[i], b = items[i + 1];
+    await Promise.all([
+      db.collection("lessons").doc(a.id).update({ order: b.order || 0 }),
+      db.collection("lessons").doc(b.id).update({ order: a.order || 0 })
+    ]);
+    loadLessonsPanel();
+  }));
 }
 document.getElementById("adminLessonSearchInput").addEventListener("input", renderLessonsList);
 

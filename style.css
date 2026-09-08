@@ -276,26 +276,50 @@ h3{ font-size:1.15rem; }
 .prompt-card .btn-solid{ background:#fff; color:var(--blue); }
 .prompt-card .btn-solid:hover{ background:var(--paper-2); }
 
-/* ---------- Chapter list (in-app curriculum) ---------- */
-.chapter-list{ display:flex; flex-direction:column; }
+/* ---------- Chapter list (in-app curriculum) ----------
+   Redesigned into a winding, top-to-bottom path -- each stop nudged
+   left or right by a varying amount rather than sitting in a single
+   straight column -- while keeping the literary node/card styling
+   (serif numerals, brass "current" glow, green "complete") exactly as
+   it already was. This is a geometry change only, not a re-theme. */
+.chapter-list{ display:flex; flex-direction:column; gap: 30px; padding: 8px 0; }
 .level-node-row{
   display:flex; gap:20px; align-items:flex-start;
-  padding:22px 0; border-bottom:1px solid var(--rule);
+  padding: 4px 0;
 }
-.level-node-row:first-child{ border-top:1px solid var(--rule); }
+/* A short, repeating sequence of offsets (alternating side, varying
+   distance) reads as an organic meander rather than a rigid zigzag,
+   without needing actual randomness -- the same lesson list should
+   look the same way on every visit, not shuffle around. */
+.level-node-row:nth-child(6n+1){ margin-left: 0; }
+.level-node-row:nth-child(6n+2){ margin-left: 34px; }
+.level-node-row:nth-child(6n+3){ margin-left: 14px; }
+.level-node-row:nth-child(6n+4){ margin-left: 44px; }
+.level-node-row:nth-child(6n+5){ margin-left: 10px; }
+.level-node-row:nth-child(6n+6){ margin-left: 26px; }
+
 .level-node{
   flex-shrink:0; width:46px; height:46px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
   font-family:var(--serif); font-weight:600; font-size:1.05rem;
   background:var(--paper-2); color:var(--ink-3); border:1px solid var(--rule-dark);
+  position: relative; z-index: 1;
 }
 .level-node.complete{ background:var(--green); color:#fff; border-color:var(--green); }
 .level-node.available{ background:var(--brass); color:#fff; border-color:var(--brass); box-shadow:0 0 0 4px var(--brass-wash); }
 .level-node.locked{ background:var(--paper-2); color:var(--ink-3); }
-.level-node-card{ flex:1; min-width:0; }
+.level-node-card{ flex:1; min-width:0; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-lg); padding: 14px 18px; }
 .level-node-card h4{ font-family:var(--serif); font-size:1.16rem; margin-bottom:3px; }
 .level-node-card p{ font-size:.9rem; color:var(--ink-2); }
 .level-node-card.locked{ opacity:.55; }
+
+@media (max-width: 560px){
+  /* The winding offset needs real width to read as a path rather than
+     just pushing content toward the edge of a narrow phone screen. */
+  .level-node-row:nth-child(6n+1),.level-node-row:nth-child(6n+2),
+  .level-node-row:nth-child(6n+3),.level-node-row:nth-child(6n+4),
+  .level-node-row:nth-child(6n+5),.level-node-row:nth-child(6n+6){ margin-left: 0; }
+}
 
 .activity-chip-row{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
 .activity-chip{
@@ -537,3 +561,56 @@ table.data-table td{ padding:11px 12px; border-bottom:1px solid var(--rule); fon
 @media (max-width: 560px){
   .translate-fab{ right: 14px; bottom: 14px; padding: 11px 16px; font-size: .88rem; }
 }
+
+/* ---------- Per-level progress bars (Progress tab) ---------- */
+.level-progress-row { margin-bottom: 16px; }
+.level-progress-row:last-child { margin-bottom: 0; }
+.level-progress-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.level-progress-title { font-family: var(--serif); font-weight: 700; font-size: 0.95rem; }
+.level-progress-count { font-size: 0.82rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+/* ---------- Admin panel: gaps that had zero CSS at all ----------
+   Found by cross-checking every class referenced in admin.html/admin.js
+   against what style.css actually defines. These rendered as bare,
+   unstyled divs -- most visibly the four stat cards on the very first
+   screen an admin sees after logging in. */
+.back-link {
+  display: inline-block; margin-bottom: 18px; font-size: 0.9rem;
+  color: var(--ink-2); text-decoration: none;
+}
+.back-link:hover { color: var(--ink); text-decoration: underline; }
+
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px; margin-bottom: 28px;
+}
+.kpi-card {
+  background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--r-lg);
+  padding: 18px 20px;
+}
+.kpi-num { font-family: var(--serif); font-size: 1.9rem; font-weight: 600; color: var(--blue); }
+.kpi-label { font-size: 0.82rem; color: var(--ink-3); margin-top: 2px; }
+
+.lesson-filter-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+
+.field-hint { font-size: 0.78rem; color: var(--ink-3); font-weight: 500; margin-top: 2px; }
+
+.callout {
+  display: inline-block; background: var(--brass-wash); border-left: 3px solid var(--brass);
+  padding: 8px 12px; border-radius: var(--r-sm); margin: 8px 0;
+}
+
+.rte-mount {
+  min-height: 100px; padding: 10px 12px; background: var(--sheet);
+  border: 1px solid var(--rule-dark); border-top: none; border-radius: 0 0 var(--r) var(--r);
+  font-size: 0.96rem; line-height: 1.6;
+}
+.rte-mount:focus { outline: none; border-color: var(--blue-bright); }
+
+.media-thumb {
+  width: 100%; aspect-ratio: 4/3; border-radius: var(--r); overflow: hidden;
+  background: var(--paper-2); display: flex; align-items: center; justify-content: center;
+  font-size: 1.8rem; margin-bottom: 10px;
+}
+.media-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.media-info h4 { font-size: 0.94rem; margin-bottom: 3px; }

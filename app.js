@@ -960,6 +960,98 @@ function lessonPlainText(lesson) {
   return parts.join("\n").trim();
 }
 
+/* ---------------------------------------------------------
+   Bilingual text-to-speech: detects Indonesian vs English PER
+   SENTENCE rather than reading the whole lesson in one fixed voice.
+   JessEDU's lessons routinely mix an English target phrase with an
+   Indonesian gloss or tip in the same block ("Apple = Apel"), and
+   reading the Indonesian half with an English voice (or vice versa)
+   is exactly the kind of thing that makes a learner's own model of
+   pronunciation worse, not better.
+
+   There is no reliable free language-detection API to call from a
+   static site, so this uses a small local word-list heuristic:
+   count how many words in a sentence match a short list of common
+   Indonesian function words versus common English ones, and go with
+   whichever is clearly ahead. It is not linguistically rigorous, but
+   for short classroom-style sentences in a two-language app it is
+   right the overwhelming majority of the time, and ties default to
+   English since that's the language being taught.
+   --------------------------------------------------------- */
+const ID_MARKER_WORDS = new Set([
+  "yang","dan","adalah","untuk","dengan","ini","itu","saya","kamu","anda","kita","kami",
+  "tidak","akan","ke","di","dari","atau","juga","bisa","dapat","harus","sudah","belum",
+  "apa","siapa","kenapa","mengapa","bagaimana","kapan","dimana","karena","tetapi","tapi",
+  "jika","kalau","seperti","sangat","lebih","paling","banyak","sedikit","semua","setiap",
+  "kata","artinya","contoh","misalnya","yaitu","adalah","bahwa","supaya","agar","tentang"
+]);
+const EN_MARKER_WORDS = new Set([
+  "the","and","is","are","for","with","this","that","i","you","we","they","he","she",
+  "not","will","to","in","from","or","also","can","could","should","already","yet",
+  "what","who","why","how","when","where","because","but","if","like","very","more",
+  "most","many","few","all","every","word","means","example","that","is","about"
+]);
+
+function detectSentenceLang(sentence) {
+  const words = sentence.toLowerCase().match(/[a-zàáâãäåèéêëìíîïòóôõöùúûü]+/g) || [];
+  if (!words.length) return "en";
+  let idScore = 0, enScore = 0;
+  words.forEach((w) => {
+    if (ID_MARKER_WORDS.has(w)) idScore++;
+    if (EN_MARKER_WORDS.has(w)) enScore++;
+  });
+  return idScore > enScore ? "id" : "en";
+}
+
+// Splits on sentence-ending punctuation and blank lines, keeping each
+// piece short enough to tag with its own language and voice.
+function splitIntoSentences(text) {
+  return text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+let __ttsVoices = [];
+function loadTtsVoices() {
+  __ttsVoices = window.speechSynthesis.getVoices();
+}
+if ("speechSynthesis" in window) {
+  loadTtsVoices();
+  window.speechSynthesis.onvoiceschanged = loadTtsVoices;
+}
+function pickVoiceFor(langCode) {
+  // Prefers an exact/prefix match (id-ID, id; en-US, en-GB, en) but
+  // never blocks on one existing -- if this device has no Indonesian
+  // voice installed (common; it isn't bundled everywhere), the
+  // utterance's lang stays set to id-ID and the browser falls back to
+  // its own best-effort default rather than the lesson failing to
+  // read at all.
+  const prefix = langCode.split("-")[0];
+  return __ttsVoices.find((v) => v.lang && v.lang.toLowerCase().startsWith(langCode.toLowerCase()))
+      || __ttsVoices.find((v) => v.lang && v.lang.toLowerCase().startsWith(prefix))
+      || null;
+}
+
+// Speaks a full lesson sentence-by-sentence, switching voice and BCP-47
+// language per sentence based on detected language. speechSynthesis
+// queues utterances automatically in call order, so no manual chaining
+// is needed -- only the per-utterance lang/voice differs.
+function speakBilingual(text, onEnd) {
+  const sentences = splitIntoSentences(text);
+  if (!sentences.length) { if (onEnd) onEnd(); return; }
+  sentences.forEach((sentence, i) => {
+    const lang = detectSentenceLang(sentence);
+    const utter = new SpeechSynthesisUtterance(sentence);
+    utter.lang = lang === "id" ? "id-ID" : "en-US";
+    const voice = pickVoiceFor(utter.lang);
+    if (voice) utter.voice = voice;
+    utter.rate = 0.92;
+    if (i === sentences.length - 1 && onEnd) utter.onend = onEnd;
+    window.speechSynthesis.speak(utter);
+  });
+}
+
 // Text-to-speech ("Listen") and a plain-text download ("Save for
 // offline") are both genuinely free: the first uses the browser's own
 // SpeechSynthesis API (no server, no cost, works even with no internet
@@ -967,6 +1059,90 @@ function lessonPlainText(lesson) {
 // download. Built with students in mind who may have limited or
 // unreliable internet access, or want to practise listening without
 // needing a fluent speaker nearby.
+// Builds a complete, nicely formatted, totally standalone HTML page for
+// offline reading -- inline CSS only, no external files or network
+// calls, so it opens correctly from a phone's Downloads folder with no
+// internet at all. This replaces a flat text dump that just
+// concatenated every block into one unbroken paragraph (real headings,
+// tip/warning boxes, and quiz questions all read the same as body
+// text) and that silently dropped quiz blocks entirely.
+function escapeHtmlOffline(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function lessonOfflineHtml(lesson) {
+  const parts = [];
+  (lesson.blocks || []).forEach((b) => {
+    if (b.type === "heading") {
+      const tag = b.level === "h3" ? "h3" : "h2";
+      parts.push(`<${tag}>${escapeHtmlOffline(b.text || "")}</${tag}>`);
+    } else if (b.type === "richtext") {
+      parts.push(`<div class="block">${b.html || ""}</div>`);
+    } else if (b.type === "tip") {
+      parts.push(`<div class="box tip"><span class="box-label">Tip</span>${b.html || ""}</div>`);
+    } else if (b.type === "warning") {
+      parts.push(`<div class="box warning"><span class="box-label">Note</span>${b.html || ""}</div>`);
+    } else if (b.type === "divider") {
+      parts.push(`<hr>`);
+    } else if (b.type === "image" && b.url) {
+      parts.push(`<figure><img src="${escapeHtmlOffline(b.url)}" alt="">` +
+        (b.caption ? `<figcaption>${escapeHtmlOffline(b.caption)}</figcaption>` : "") + `</figure>`);
+    } else if (b.type === "accordion") {
+      parts.push((b.items || []).map((item) =>
+        `<div class="accordion-item"><h4>${escapeHtmlOffline(item.title || "")}</h4><p>${escapeHtmlOffline(item.content || "")}</p></div>`
+      ).join(""));
+    } else if (b.type === "quiz") {
+      parts.push('<div class="quiz-block"><h3>Check your understanding</h3>' +
+        (b.questions || []).map((q, qi) =>
+          `<div class="quiz-q"><p class="q-text">${qi + 1}. ${escapeHtmlOffline(q.text || "")}</p>` +
+          '<ul class="quiz-opts">' +
+          (q.options || []).map((opt, oi) =>
+            `<li${oi === q.correctIndex ? ' class="correct"' : ""}>${escapeHtmlOffline(opt)}${oi === q.correctIndex ? " ✓" : ""}</li>`
+          ).join("") + "</ul></div>"
+        ).join("") + "</div>");
+    }
+  });
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>${escapeHtmlOffline(lesson.title)}</title>
+<style>
+  body { font-family: Georgia, 'Times New Roman', serif; max-width: 700px; margin: 0 auto; padding: 32px 24px 80px;
+         color: #17241C; background: #FBF8F1; line-height: 1.7; }
+  h1 { font-family: system-ui, sans-serif; font-size: 1.8rem; margin-bottom: 4px; }
+  h2 { font-family: system-ui, sans-serif; font-size: 1.35rem; margin-top: 36px; }
+  h3 { font-family: system-ui, sans-serif; font-size: 1.1rem; margin-top: 24px; }
+  .meta { font-family: system-ui, sans-serif; font-size: 0.85rem; color: #6B7280; margin-bottom: 28px; }
+  .block p { margin: 0 0 14px; }
+  .box { padding: 14px 18px; border-radius: 8px; margin: 18px 0; font-family: system-ui, sans-serif; font-size: 0.95rem; }
+  .box.tip { background: #E8F0F7; border-left: 4px solid #2E6DA4; }
+  .box.warning { background: #FDF3E3; border-left: 4px solid #B07D26; }
+  .box-label { display: block; font-weight: 700; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+  hr { border: none; border-top: 1px solid #DED5C4; margin: 28px 0; }
+  figure { margin: 20px 0; } figure img { max-width: 100%; border-radius: 8px; }
+  figcaption { font-size: 0.82rem; color: #6B7280; margin-top: 6px; font-family: system-ui, sans-serif; }
+  .accordion-item { margin-bottom: 14px; }
+  .accordion-item h4 { font-family: system-ui, sans-serif; font-size: 1rem; margin-bottom: 4px; }
+  .quiz-block { background: #F4EFE3; border-radius: 10px; padding: 18px 22px; margin-top: 32px; font-family: system-ui, sans-serif; }
+  .quiz-q { margin-bottom: 18px; }
+  .q-text { font-weight: 700; margin-bottom: 8px; }
+  .quiz-opts { list-style: none; padding: 0; margin: 0; }
+  .quiz-opts li { padding: 6px 10px; border-radius: 6px; margin-bottom: 4px; background: #fff; }
+  .quiz-opts li.correct { background: #E7F1EA; font-weight: 700; color: #1B5233; }
+  .footer-note { margin-top: 48px; font-family: system-ui, sans-serif; font-size: 0.8rem; color: #9CA3AF; border-top: 1px solid #DED5C4; padding-top: 16px; }
+</style>
+</head>
+<body>
+<h1>${escapeHtmlOffline(lesson.title)}</h1>
+<p class="meta">${escapeHtmlOffline(lesson.category || "")}${lesson.category && lesson.difficulty ? " · " : ""}${escapeHtmlOffline(lesson.difficulty || "")}${lesson.estimatedMinutes ? " · " + lesson.estimatedMinutes + " min" : ""}</p>
+${parts.join("\n")}
+<p class="footer-note">Saved for offline reading from JessEDU. Answers marked with ✓ are the correct option for each question.</p>
+</body>
+</html>`;
+}
+
 function wireLessonFreeTools(lesson) {
   const listenBtn = document.getElementById("lessonListenBtn");
   if (listenBtn && "speechSynthesis" in window) {
@@ -976,13 +1152,8 @@ function wireLessonFreeTools(lesson) {
         listenBtn.textContent = "🔊 Listen";
         return;
       }
-      const utter = new SpeechSynthesisUtterance(lessonPlainText(lesson));
-      utter.lang = "en-US";
-      utter.rate = 0.92; // slightly slower than default: easier to follow for a learner
-      utter.onend = () => { listenBtn.textContent = "🔊 Listen"; };
-      utter.onerror = () => { listenBtn.textContent = "🔊 Listen"; };
-      window.speechSynthesis.speak(utter);
       listenBtn.textContent = "⏸ Stop";
+      speakBilingual(lessonPlainText(lesson), () => { listenBtn.textContent = "🔊 Listen"; });
     });
   } else if (listenBtn) {
     listenBtn.disabled = true;
@@ -992,11 +1163,11 @@ function wireLessonFreeTools(lesson) {
   const saveBtn = document.getElementById("lessonSaveOfflineBtn");
   if (saveBtn) {
     saveBtn.addEventListener("click", () => {
-      const blob = new Blob([lessonPlainText(lesson)], { type: "text/plain;charset=utf-8" });
+      const blob = new Blob([lessonOfflineHtml(lesson)], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = lesson.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".txt";
+      a.download = lesson.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".html";
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -1826,13 +1997,35 @@ document.querySelectorAll("[data-panel]").forEach(el => {
     const eyebrows = { paths: "Learning path", lessons: "Lessons", progress: "Progress", history: "History", media: "Media Library" };
     document.getElementById("dashPanelTitle").textContent = titles[panel] || "";
     document.getElementById("dashPanelEyebrow").textContent = eyebrows[panel] || "";
-    if (panel === "progress") renderCompletedList();
+    if (panel === "progress") { renderLevelProgress(); renderCompletedList(); }
     if (panel === "history") renderXpHistory();
     if (panel === "media") loadMediaLibrary();
     if (panel === "lessons") loadLessonLibrary();
     __presencePage = panel === "paths" ? "dashboard" : panel;
   });
 });
+
+function renderLevelProgress() {
+  const host = document.getElementById("levelProgressList");
+  if (!host) return;
+  if (!__allLevels.length) {
+    host.innerHTML = '<div class="empty-state"><h3>No levels published yet</h3></div>';
+    return;
+  }
+  const completed = getCompletedSet();
+  host.innerHTML = __allLevels.map((lvl, i) => {
+    const acts = __activitiesByLevel[lvl.id] || [];
+    const doneCount = acts.filter((a) => completed[a.id]).length;
+    const pct = acts.length ? Math.round((doneCount / acts.length) * 100) : 0;
+    return `<div class="level-progress-row">
+      <div class="level-progress-head">
+        <span class="level-progress-title">${escapeHtml(lvl.title || "Level " + (i + 1))}</span>
+        <span class="level-progress-count">${doneCount}/${acts.length}</span>
+      </div>
+      <div class="progress-bar-track"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join("");
+}
 
 function renderCompletedList() {
   const host = document.getElementById("completedList");
