@@ -310,6 +310,12 @@
   <span id="translateFabLabel">EN &rarr; ID</span>
 </button>
 
+<!-- jsPDF: the one external library on this whole site. Real, correctly
+     paginated PDF generation isn't practical to hand-write, and this is
+     the standard, widely-used free library for doing it entirely in the
+     browser (no server, no account, no cost). Loaded from a CDN with a
+     version pin so it can't silently change under us. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>

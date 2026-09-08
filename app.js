@@ -592,6 +592,25 @@ function renderLevelPath() {
       p.style.marginTop = "8px";
       p.textContent = "No activities published in this level yet.";
       card.appendChild(p);
+    } else {
+      // Previously a locked level rendered nothing at all here: no
+      // message, no click handler, nothing -- clicking it silently did
+      // absolutely nothing, with no indication to the learner of why or
+      // what to do about it. Now it clearly says it's locked, and
+      // clicking it names the specific level standing in the way.
+      const lockNote = document.createElement("p");
+      lockNote.style.marginTop = "8px";
+      lockNote.style.cursor = "pointer";
+      lockNote.innerHTML = "🔒 Locked — tap to see what's needed";
+      const prevLvl = __allLevels[i - 1];
+      const prevTitle = prevLvl ? (prevLvl.title || "the previous level") : "the previous level";
+      card.style.cursor = "pointer";
+      const notifyLocked = () => {
+        showToast("Complete \"" + prevTitle + "\" first to unlock this level.", "info");
+      };
+      card.addEventListener("click", notifyLocked);
+      lockNote.addEventListener("click", (e) => { e.stopPropagation(); notifyLocked(); });
+      card.appendChild(lockNote);
     }
 
     row.appendChild(card);
@@ -797,12 +816,18 @@ function renderLessonGrid() {
     (!search || l.title.toLowerCase().includes(search))
   );
   if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No lessons found</h3></div>'; return; }
-  host.innerHTML = '<div class="lesson-grid">' + items.map(l =>
+  // Same winding, top-to-bottom path language as the level path, rather
+  // than a plain multi-column grid -- browsing/searching still works
+  // exactly as before (this is a layout change only), each lesson just
+  // reads as one stop along a path instead of a tile in a grid.
+  host.innerHTML = '<div class="lesson-path">' + items.map((l, i) =>
+    '<div class="lesson-path-row">' +
+    '<div class="lesson-path-node' + (completed[l.id] ? ' complete' : '') + '">' + (completed[l.id] ? '✓' : (i + 1)) + '</div>' +
     '<div class="lesson-card" data-open-lesson="' + l.id + '">' +
     '<div class="lesson-card-tags"><span class="lesson-tag">' + escapeHtml(l.category || "") + '</span>' +
     '<span class="lesson-tag diff-' + escapeHtml(l.difficulty || "") + '">' + escapeHtml(l.difficulty || "") + '</span></div>' +
     '<h4>' + escapeHtml(l.title) + (completed[l.id] ? ' <span class="lesson-done-badge">✓</span>' : '') + '</h4>' +
-    '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div></div>'
+    '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div></div></div>'
   ).join("") + '</div>';
   host.querySelectorAll("[data-open-lesson]").forEach(card =>
     card.addEventListener("click", () => openLessonViewer(items.find(l => l.id === card.getAttribute("data-open-lesson"))))
@@ -1143,6 +1168,112 @@ ${parts.join("\n")}
 </html>`;
 }
 
+// Builds a real, properly paginated PDF using jsPDF -- the one external
+// library on this site (see index.html for why). jsPDF has no built-in
+// HTML-to-PDF layout, so this walks the same block data as the HTML
+// export and lays each piece out by hand: word-wrapped paragraphs,
+// page breaks inserted before content would run off the bottom of the
+// page, and a light visual treatment for headings/tips/warnings/quiz
+// questions so it doesn't read as an undifferentiated wall of text.
+function lessonToPdfBlob(lesson) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 56;
+  const maxW = pageW - margin * 2;
+  let y = margin;
+
+  function ensureRoom(neededHeight) {
+    if (y + neededHeight > pageH - margin) {
+      doc.addPage();
+      y = margin;
+    }
+  }
+  function paragraph(text, opts) {
+    opts = opts || {};
+    doc.setFont("helvetica", opts.bold ? "bold" : "normal");
+    doc.setFontSize(opts.size || 11);
+    const lines = doc.splitTextToSize(text, maxW - (opts.indent || 0));
+    lines.forEach((line) => {
+      ensureRoom(opts.lineHeight || 16);
+      doc.text(line, margin + (opts.indent || 0), y);
+      y += opts.lineHeight || 16;
+    });
+    y += opts.gapAfter || 0;
+  }
+  function stripHtmlToText(html) {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html || "";
+    return tmp.textContent.trim();
+  }
+
+  // Title + meta
+  paragraph(lesson.title, { bold: true, size: 20, lineHeight: 26, gapAfter: 4 });
+  const meta = [lesson.category, lesson.difficulty, lesson.estimatedMinutes ? lesson.estimatedMinutes + " min" : ""].filter(Boolean).join("   ·   ");
+  if (meta) {
+    doc.setTextColor(110, 110, 110);
+    paragraph(meta, { size: 9, lineHeight: 13, gapAfter: 14 });
+    doc.setTextColor(20, 20, 20);
+  }
+
+  (lesson.blocks || []).forEach((b) => {
+    if (b.type === "heading") {
+      ensureRoom(30);
+      y += 6;
+      paragraph(b.text || "", { bold: true, size: b.level === "h3" ? 13 : 15, lineHeight: 19, gapAfter: 6 });
+    } else if (b.type === "richtext") {
+      paragraph(stripHtmlToText(b.html), { size: 11, lineHeight: 16, gapAfter: 8 });
+    } else if (b.type === "tip" || b.type === "warning") {
+      const label = b.type === "tip" ? "TIP" : "NOTE";
+      ensureRoom(20);
+      doc.setFillColor(b.type === "tip" ? 232 : 253, b.type === "tip" ? 240 : 243, b.type === "tip" ? 247 : 227);
+      const text = stripHtmlToText(b.html);
+      const lines = doc.splitTextToSize(text, maxW - 20);
+      const boxH = 22 + lines.length * 15;
+      ensureRoom(boxH);
+      doc.roundedRect(margin, y - 4, maxW, boxH, 4, 4, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8);
+      doc.setTextColor(90, 90, 90);
+      doc.text(label, margin + 10, y + 10);
+      doc.setTextColor(20, 20, 20);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(11);
+      let ty = y + 26;
+      lines.forEach((line) => { doc.text(line, margin + 10, ty); ty += 15; });
+      y += boxH + 10;
+    } else if (b.type === "accordion") {
+      (b.items || []).forEach((item) => {
+        paragraph(item.title || "", { bold: true, size: 12, lineHeight: 16, gapAfter: 2 });
+        paragraph(item.content || "", { size: 11, lineHeight: 15, gapAfter: 8 });
+      });
+    } else if (b.type === "quiz") {
+      ensureRoom(30);
+      y += 8;
+      paragraph("Check your understanding", { bold: true, size: 13, lineHeight: 18, gapAfter: 6 });
+      (b.questions || []).forEach((q, qi) => {
+        paragraph((qi + 1) + ". " + (q.text || ""), { bold: true, size: 11, lineHeight: 15, gapAfter: 3 });
+        (q.options || []).forEach((opt, oi) => {
+          const isCorrect = oi === q.correctIndex;
+          doc.setFont("helvetica", isCorrect ? "bold" : "normal");
+          doc.setFontSize(10.5);
+          if (isCorrect) doc.setTextColor(27, 82, 51);
+          ensureRoom(14);
+          doc.text((isCorrect ? "✓ " : "•  ") + opt, margin + 14, y);
+          y += 14;
+          doc.setTextColor(20, 20, 20);
+        });
+        y += 8;
+      });
+    }
+  });
+
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+  doc.setTextColor(150, 150, 150);
+  doc.text("Saved for offline reading from JessEDU.", margin, pageH - 24);
+
+  return doc.output("blob");
+}
+
 function wireLessonFreeTools(lesson) {
   const listenBtn = document.getElementById("lessonListenBtn");
   if (listenBtn && "speechSynthesis" in window) {
@@ -1163,11 +1294,26 @@ function wireLessonFreeTools(lesson) {
   const saveBtn = document.getElementById("lessonSaveOfflineBtn");
   if (saveBtn) {
     saveBtn.addEventListener("click", () => {
-      const blob = new Blob([lessonOfflineHtml(lesson)], { type: "text/html;charset=utf-8" });
+      if (!window.jspdf) {
+        // The PDF library comes from a CDN; if it failed to load (no
+        // internet the very first time this page was opened, or the
+        // CDN is blocked on this network), fall back to the HTML
+        // export rather than the button silently doing nothing.
+        showToast("Couldn't load the PDF library — saving as an HTML file instead.", "info");
+        const blob = new Blob([lessonOfflineHtml(lesson)], { type: "text/html;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = lesson.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".html";
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const blob = lessonToPdfBlob(lesson);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = lesson.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".html";
+      a.download = lesson.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".pdf";
       a.click();
       URL.revokeObjectURL(url);
     });
