@@ -648,3 +648,10 @@ table.data-table td{ padding:11px 12px; border-bottom:1px solid var(--rule); fon
 .shop-card-desc{ font-size:0.88rem; color:var(--ink-2); flex:1; margin-bottom:14px; }
 .shop-card-foot{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .shop-cost{ font-family:var(--serif); font-weight:700; color:var(--brass); font-size:1.05rem; }
+
+/* Locked lessons in the library, matching the same treatment as locked
+   levels: greyed content, a lock icon on the node, and clicking still
+   responds (with a toast explaining why) rather than doing nothing. */
+.lesson-path-node.locked{ background:var(--paper-2); color:var(--ink-3); border-color:var(--rule-dark); font-size:1rem; }
+.lesson-card.locked{ opacity:0.6; cursor:pointer; }
+.lesson-card.locked .lesson-meta{ color:var(--ink-3); }

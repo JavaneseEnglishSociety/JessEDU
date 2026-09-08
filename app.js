@@ -64,8 +64,16 @@ function collectTextNodes(root) {
 }
 
 async function translateVisibleArea() {
+  // Previously this only ever looked inside #dashboard -- meaning
+  // clicking the button on the landing page (the very first thing
+  // anyone sees, before logging in) translated an empty, hidden
+  // container while doing nothing to what was actually on screen.
+  // This now picks whichever top-level view is actually visible.
+  const candidateRoots = ["landingView", "authView", "dashboard"]
+    .map((id) => document.getElementById(id))
+    .filter((el) => el && !el.hidden);
   const containers = [
-    document.getElementById("dashboard"),
+    ...candidateRoots,
     ...document.querySelectorAll("#modalHost .modal-panel")
   ].filter(Boolean);
 
@@ -834,22 +842,48 @@ function renderLessonGrid() {
     (!search || l.title.toLowerCase().includes(search))
   );
   if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No lessons found</h3></div>'; return; }
+
+  // Locking is checked against the FULL published order (__allLessonsCache),
+  // never the filtered/searched `items` list -- otherwise searching or
+  // filtering down to one category would silently change what "the
+  // previous lesson" means. A lesson's number badge still reflects its
+  // position within whatever's currently visible, but whether it's
+  // locked always reflects its true place in the whole sequence.
+  function isLessonLocked(lesson) {
+    const globalIndex = __allLessonsCache.findIndex((l) => l.id === lesson.id);
+    if (globalIndex <= 0) return false;
+    const prev = __allLessonsCache[globalIndex - 1];
+    return !completed[prev.id];
+  }
+
   // Same winding, top-to-bottom path language as the level path, rather
   // than a plain multi-column grid -- browsing/searching still works
   // exactly as before (this is a layout change only), each lesson just
   // reads as one stop along a path instead of a tile in a grid.
-  host.innerHTML = '<div class="lesson-path">' + items.map((l, i) =>
-    '<div class="lesson-path-row">' +
-    '<div class="lesson-path-node' + (completed[l.id] ? ' complete' : '') + '">' + (completed[l.id] ? '✓' : (i + 1)) + '</div>' +
-    '<div class="lesson-card" data-open-lesson="' + l.id + '">' +
+  host.innerHTML = '<div class="lesson-path">' + items.map((l, i) => {
+    const locked = isLessonLocked(l);
+    return '<div class="lesson-path-row">' +
+    '<div class="lesson-path-node' + (completed[l.id] ? ' complete' : locked ? ' locked' : '') + '">' + (completed[l.id] ? '✓' : locked ? '🔒' : (i + 1)) + '</div>' +
+    '<div class="lesson-card' + (locked ? ' locked' : '') + '" data-open-lesson="' + l.id + '" data-locked="' + locked + '">' +
     '<div class="lesson-card-tags"><span class="lesson-tag">' + escapeHtml(l.category || "") + '</span>' +
     '<span class="lesson-tag diff-' + escapeHtml(l.difficulty || "") + '">' + escapeHtml(l.difficulty || "") + '</span></div>' +
     '<h4>' + escapeHtml(l.title) + (completed[l.id] ? ' <span class="lesson-done-badge">✓</span>' : '') + '</h4>' +
-    '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div></div></div>'
-  ).join("") + '</div>';
-  host.querySelectorAll("[data-open-lesson]").forEach(card =>
-    card.addEventListener("click", () => openLessonViewer(items.find(l => l.id === card.getAttribute("data-open-lesson"))))
-  );
+    (locked
+      ? '<div class="lesson-meta">🔒 Complete the previous lesson first</div>'
+      : '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div>') +
+    '</div></div>';
+  }).join("") + '</div>';
+
+  host.querySelectorAll("[data-open-lesson]").forEach(card => card.addEventListener("click", () => {
+    const lesson = items.find(l => l.id === card.getAttribute("data-open-lesson"));
+    if (card.getAttribute("data-locked") === "true") {
+      const globalIndex = __allLessonsCache.findIndex((l) => l.id === lesson.id);
+      const prevTitle = globalIndex > 0 ? __allLessonsCache[globalIndex - 1].title : "the previous lesson";
+      showToast("Complete \"" + prevTitle + "\" first to unlock this lesson.", "info");
+      return;
+    }
+    openLessonViewer(lesson);
+  }));
 }
 
 document.getElementById("lessonSearchInput").addEventListener("input", renderLessonGrid);
@@ -1244,16 +1278,9 @@ function lessonOfflineHtml(lesson) {
       parts.push((b.items || []).map((item) =>
         `<div class="accordion-item"><h4>${escapeHtmlOffline(item.title || "")}</h4><p>${escapeHtmlOffline(item.content || "")}</p></div>`
       ).join(""));
-    } else if (b.type === "quiz") {
-      parts.push('<div class="quiz-block"><h3>Check your understanding</h3>' +
-        (b.questions || []).map((q, qi) =>
-          `<div class="quiz-q"><p class="q-text">${qi + 1}. ${escapeHtmlOffline(q.text || "")}</p>` +
-          '<ul class="quiz-opts">' +
-          (q.options || []).map((opt, oi) =>
-            `<li${oi === q.correctIndex ? ' class="correct"' : ""}>${escapeHtmlOffline(opt)}${oi === q.correctIndex ? " ✓" : ""}</li>`
-          ).join("") + "</ul></div>"
-        ).join("") + "</div>");
     }
+    // Quiz blocks intentionally excluded -- same reasoning as the PDF
+    // export: an interactive quiz has no meaningful offline form.
   });
 
   return `<!DOCTYPE html>
@@ -1322,22 +1349,69 @@ function lessonToPdfBlob(lesson) {
     opts = opts || {};
     doc.setFont("helvetica", opts.bold ? "bold" : "normal");
     doc.setFontSize(opts.size || 11);
-    const lines = doc.splitTextToSize(text, maxW - (opts.indent || 0));
-    lines.forEach((line) => {
-      ensureRoom(opts.lineHeight || 16);
-      doc.text(line, margin + (opts.indent || 0), y);
-      y += opts.lineHeight || 16;
+    // Split on real line breaks FIRST, then word-wrap each piece
+    // separately. jsPDF's splitTextToSize wraps by width only and
+    // can't be trusted to treat an embedded "\n" as a forced break
+    // rather than just another whitespace character it's free to
+    // collapse -- doing the hard breaks ourselves guarantees the
+    // paragraph/list structure from stripHtmlToText actually survives
+    // onto the page instead of getting silently re-flattened here.
+    const hardLines = String(text).split("\n");
+    hardLines.forEach((hardLine) => {
+      const wrapped = doc.splitTextToSize(hardLine, maxW - (opts.indent || 0));
+      wrapped.forEach((line) => {
+        ensureRoom(opts.lineHeight || 16);
+        doc.text(line, margin + (opts.indent || 0), y);
+        y += opts.lineHeight || 16;
+      });
     });
     y += opts.gapAfter || 0;
   }
   function stripHtmlToText(html) {
+    // .textContent alone is what caused the "gibberish": it correctly
+    // removes tags but throws away all structure, so <ul><li>A</li>
+    // <li>B</li></ul> became the single run "AB" with no space, and
+    // separate <p> paragraphs ran straight into each other. This walks
+    // the actual DOM tree instead, so paragraph breaks, line breaks,
+    // and list bullets survive as real blank lines / bullet points in
+    // the PDF, matching how the lesson actually reads on screen.
     const tmp = document.createElement("div");
     tmp.innerHTML = html || "";
-    return tmp.textContent.trim();
+    const lines = [];
+    let current = "";
+    function flush() { if (current.trim()) lines.push(current.trim()); current = ""; }
+    function walk(node) {
+      if (node.nodeType === Node.TEXT_NODE) { current += node.nodeValue; return; }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = node.tagName.toLowerCase();
+      if (tag === "br") { current += "\n"; return; }
+      if (tag === "li") {
+        flush();
+        current = "•  ";
+        node.childNodes.forEach(walk);
+        flush();
+        return;
+      }
+      const isBlock = ["p", "div", "ul", "ol", "h1", "h2", "h3", "h4"].includes(tag);
+      if (isBlock) flush();
+      node.childNodes.forEach(walk);
+      if (isBlock) flush();
+    }
+    tmp.childNodes.forEach(walk);
+    flush();
+    // Defense in depth: if anything tag-shaped still made it through
+    // (a malformed save, an unclosed tag), strip it rather than let it
+    // print as visible "<...>" text.
+    return lines.join("\n").replace(/<\/?[a-z][^>]*>/gi, "").trim();
   }
 
-  // Title + meta
-  paragraph(lesson.title, { bold: true, size: 20, lineHeight: 26, gapAfter: 4 });
+  // Title + meta. The site itself renders the lesson title as an <h2>
+  // (same tag as an in-content heading block), so this uses the same
+  // size for both rather than treating the title as a bigger, separate
+  // tier -- matching how the real lesson viewer actually looks rather
+  // than an arbitrary PDF-only hierarchy.
+  const H2_SIZE = 20, H3_SIZE = 14;
+  paragraph(lesson.title, { bold: true, size: H2_SIZE, lineHeight: 26, gapAfter: 4 });
   const meta = [lesson.category, lesson.difficulty, lesson.estimatedMinutes ? lesson.estimatedMinutes + " min" : ""].filter(Boolean).join("   ·   ");
   if (meta) {
     doc.setTextColor(110, 110, 110);
@@ -1349,7 +1423,7 @@ function lessonToPdfBlob(lesson) {
     if (b.type === "heading") {
       ensureRoom(30);
       y += 6;
-      paragraph(b.text || "", { bold: true, size: b.level === "h3" ? 13 : 15, lineHeight: 19, gapAfter: 6 });
+      paragraph(b.text || "", { bold: true, size: b.level === "h3" ? H3_SIZE : H2_SIZE, lineHeight: b.level === "h3" ? 19 : 25, gapAfter: 6 });
     } else if (b.type === "richtext") {
       paragraph(stripHtmlToText(b.html), { size: 11, lineHeight: 16, gapAfter: 8 });
     } else if (b.type === "tip" || b.type === "warning") {
@@ -1357,7 +1431,10 @@ function lessonToPdfBlob(lesson) {
       ensureRoom(20);
       doc.setFillColor(b.type === "tip" ? 232 : 253, b.type === "tip" ? 240 : 243, b.type === "tip" ? 247 : 227);
       const text = stripHtmlToText(b.html);
-      const lines = doc.splitTextToSize(text, maxW - 20);
+      // Same hard-line-first approach as paragraph() above, so a
+      // multi-line tip (a short list, several sentences) keeps its
+      // real line breaks instead of being rewrapped into one run.
+      const lines = text.split("\n").flatMap((hardLine) => doc.splitTextToSize(hardLine, maxW - 20));
       const boxH = 22 + lines.length * 15;
       ensureRoom(boxH);
       doc.roundedRect(margin, y - 4, maxW, boxH, 4, 4, "F");
@@ -1374,25 +1451,12 @@ function lessonToPdfBlob(lesson) {
         paragraph(item.title || "", { bold: true, size: 12, lineHeight: 16, gapAfter: 2 });
         paragraph(item.content || "", { size: 11, lineHeight: 15, gapAfter: 8 });
       });
-    } else if (b.type === "quiz") {
-      ensureRoom(30);
-      y += 8;
-      paragraph("Check your understanding", { bold: true, size: 13, lineHeight: 18, gapAfter: 6 });
-      (b.questions || []).forEach((q, qi) => {
-        paragraph((qi + 1) + ". " + (q.text || ""), { bold: true, size: 11, lineHeight: 15, gapAfter: 3 });
-        (q.options || []).forEach((opt, oi) => {
-          const isCorrect = oi === q.correctIndex;
-          doc.setFont("helvetica", isCorrect ? "bold" : "normal");
-          doc.setFontSize(10.5);
-          if (isCorrect) doc.setTextColor(27, 82, 51);
-          ensureRoom(14);
-          doc.text((isCorrect ? "✓ " : "•  ") + opt, margin + 14, y);
-          y += 14;
-          doc.setTextColor(20, 20, 20);
-        });
-        y += 8;
-      });
     }
+    // Quiz blocks are deliberately left out of the offline download.
+    // The point of "offline" is reading material away from the app;
+    // an interactive check-your-understanding quiz has no meaningful
+    // offline form (there's nothing to submit it to), so it's simply
+    // not included rather than printed as an inert list of questions.
   });
 
   doc.setFont("helvetica", "normal"); doc.setFontSize(8);
