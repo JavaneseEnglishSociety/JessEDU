@@ -56,6 +56,7 @@
         <button class="rail-tab" data-admin-panel="activities">🧩 Activities</button>
         <button class="rail-tab" data-admin-panel="ai">✨ AI Assistant</button>
         <button class="rail-tab" data-admin-panel="lessons">📘 Lessons</button>
+        <button class="rail-tab" data-admin-panel="commands">⌨️ Command Panel</button>
         <button class="rail-tab" data-admin-panel="placement">📍 Placement quiz</button>
         <button class="rail-tab" data-admin-panel="media">🗂️ Media Library</button>
       </nav>
@@ -157,6 +158,28 @@
           <input type="text" class="media-search-input" id="adminLessonSearchInput" placeholder="Search lessons…" style="flex:1; min-width:180px;">
         </div>
         <div id="lessonsListHost"></div>
+      </section>
+
+      <section id="adminPanelCommands" hidden>
+        <div class="area-head">
+          <div><p class="folio">Command Panel</p><h2 style="margin:0;">Write a lesson in plain text</h2></div>
+        </div>
+        <div class="alert alert-info" style="margin-bottom:18px;">
+          Type or paste text using the tags below and it becomes a real lesson with real blocks — no clicking
+          through the block editor by hand. This is also written so an AI (ChatGPT, Claude, whatever you use)
+          can generate the text for you: press "Copy the syntax guide" and paste it into a chat along with what
+          you want the lesson to cover, then paste whatever it writes back in here.
+        </div>
+        <div class="card-row" style="margin-bottom:14px;">
+          <button class="btn btn-secondary btn-sm" id="copyCommandSyntaxBtn">Copy the syntax guide</button>
+          <button class="btn btn-secondary btn-sm" id="loadCommandExampleBtn">Load an example</button>
+        </div>
+        <textarea id="commandInputArea" rows="16" style="width:100%; font-family:monospace; font-size:0.86rem; padding:14px; border:1px solid var(--rule-dark); border-radius:var(--r); background:var(--sheet);" placeholder="TITLE: Colors&#10;CATEGORY: Vocabulary&#10;DIFFICULTY: Beginner&#10;&#10;[HEADING] Basic Colors&#10;[TEXT]&#10;Red, blue, and green are common colors."></textarea>
+        <div style="display:flex; gap:10px; margin-top:14px;">
+          <button class="btn btn-solid" id="parseCommandBtn">Parse and preview</button>
+        </div>
+        <div id="commandParseAlert" style="margin-top:14px;"></div>
+        <div id="commandPreviewHost" style="margin-top:20px;"></div>
       </section>
 
       <!-- Placement quiz -->

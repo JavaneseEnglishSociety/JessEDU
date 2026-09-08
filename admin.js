@@ -118,7 +118,7 @@ if (isAdminUnlocked) bootAdminDashboard();
 /* ---------------------------------------------------------
    2. Sidebar panel switching
    --------------------------------------------------------- */
-const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "ai", "lessons", "placement", "media"];
+const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "ai", "lessons", "commands", "placement", "media"];
 document.querySelectorAll("[data-admin-panel]").forEach(el => {
   el.addEventListener("click", () => {
     const panel = el.getAttribute("data-admin-panel");
@@ -131,6 +131,7 @@ document.querySelectorAll("[data-admin-panel]").forEach(el => {
     if (panel === "activities") loadActivitiesPanel();
     if (panel === "ai") initAiAssistant();
     if (panel === "lessons") loadLessonsPanel();
+    if (panel === "commands") initCommandPanel();
     if (panel === "placement") loadPlacementPanel();
     if (panel === "media") loadMediaPanel();
   });
@@ -1246,6 +1247,294 @@ async function deleteLesson(id) {
   } catch (err) {
     showToast(describeFirebaseError(err), "error");
   }
+}
+
+/* ---------------------------------------------------------
+   Command Panel: write a lesson as plain tagged text instead of
+   clicking through the block editor by hand. Designed specifically so
+   an outside AI (ChatGPT, Claude, whatever) can generate it too --
+   the syntax guide below is meant to be copied straight into a chat.
+   --------------------------------------------------------- */
+const COMMAND_SYNTAX_GUIDE =
+`Write a JessEDU lesson using this exact plain-text format. Follow it precisely -- every tag is a square-bracketed word in capitals, like [HEADING] or [QUIZ].
+
+Start with these header lines (all optional except TITLE):
+TITLE: The lesson's title
+CATEGORY: one of Grammar, Vocabulary, Speaking, Writing, Reading, Listening, IELTS, TOEFL, MUN, Business English
+DIFFICULTY: one of Beginner, Elementary, Intermediate, Advanced, Expert
+MINUTES: a number, how many minutes the lesson takes
+EXP: a number, how much EXP completing it awards
+
+Then any number of these blocks, in the order you want them to appear:
+
+[HEADING] Your heading text
+  A large section heading, on the same line as the tag.
+
+[HEADING3] Your smaller heading text
+  A smaller sub-heading, on the same line as the tag.
+
+[TEXT]
+  A paragraph of normal lesson content. Everything until the next [TAG]
+  line is one text block. Leave a blank line between separate
+  paragraphs. You can use **word** for bold and *word* for italic.
+
+[TIP]
+  Same rules as [TEXT], but shown as a highlighted tip box.
+
+[WARNING]
+  Same rules as [TEXT], but shown as a highlighted warning box.
+
+[DIVIDER]
+  A plain horizontal divider line. No content after it.
+
+[ACCORDION]
+- First item title: its content
+- Second item title: its content
+  One "- Title: Content" per line. As many lines as you want.
+
+[QUIZ]
+Q: The question text
+A: A wrong answer
+A: The correct answer *
+A: Another wrong answer
+A: Another wrong answer
+  Start each question with "Q:". Follow it with exactly four "A:" lines,
+  one per option. Put a single * right after the correct one. You can
+  repeat Q:/A:/A:/A:/A: as many times as you want for more questions.
+
+Write the whole lesson now using only this format, nothing else around it.`;
+
+const COMMAND_EXAMPLE_TEXT =
+`TITLE: Colors
+CATEGORY: Vocabulary
+DIFFICULTY: Beginner
+MINUTES: 5
+EXP: 20
+
+[HEADING] Basic Colors
+[TEXT]
+Colors are some of the first words English learners pick up. Here are a few common ones: **red**, **blue**, **green**, and **yellow**.
+
+Try pointing at things around you and saying their color out loud.
+
+[TIP]
+Practice with real objects at home. It's much easier to remember "red apple" than just the word "red" by itself.
+
+[DIVIDER]
+
+[HEADING3] Common Mixups
+[WARNING]
+Don't confuse *blue* and *blew* — they sound the same but mean completely different things.
+
+[ACCORDION]
+- What color is the sky?: Blue, on a clear day.
+- What color is grass?: Green, most of the time.
+
+[QUIZ]
+Q: Which of these is red?
+A: Banana
+A: Apple *
+A: Sky
+A: Grass
+Q: Which of these is blue?
+A: Grass
+A: Apple
+A: Sky *
+A: Banana`;
+
+function textToRichHtml(raw) {
+  const paras = raw.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  if (!paras.length) return "<p></p>";
+  return paras.map((p) => {
+    const h = escapeHtml(p)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/\n/g, "<br>");
+    return "<p>" + h + "</p>";
+  }).join("");
+}
+
+// The actual parser. Deliberately forgiving: unrecognised lines get
+// collected as warnings rather than aborting the whole thing, since an
+// AI's output might have small quirks worth flagging rather than
+// silently dropping the entire lesson over one bad line.
+function parseLessonCommandText(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const meta = { title: "", category: LESSON_CATEGORIES[0], difficulty: LESSON_DIFFICULTIES[0], estimatedMinutes: 5, xpReward: 25 };
+  const blocks = [];
+  const warnings = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) { i++; continue; }
+    if (line.startsWith("[")) break;
+    const m = line.match(/^([A-Za-z]+):\s*(.*)$/);
+    if (m) {
+      const key = m[1].toUpperCase(), val = m[2].trim();
+      if (key === "TITLE") meta.title = val;
+      else if (key === "CATEGORY") meta.category = LESSON_CATEGORIES.find((c) => c.toLowerCase() === val.toLowerCase()) || val;
+      else if (key === "DIFFICULTY") meta.difficulty = LESSON_DIFFICULTIES.find((d) => d.toLowerCase() === val.toLowerCase()) || val;
+      else if (key === "MINUTES") meta.estimatedMinutes = parseInt(val, 10) || 5;
+      else if (key === "EXP") meta.xpReward = parseInt(val, 10) || 25;
+    }
+    i++;
+  }
+
+  const isTagLine = (l) => /^\s*\[[A-Za-z0-9]+\]/.test(l || "");
+
+  while (i < lines.length) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) { i++; continue; }
+    const tagMatch = trimmed.match(/^\[([A-Za-z0-9]+)\]\s*(.*)$/);
+    if (!tagMatch) { warnings.push('Ignored a line outside any [TAG]: "' + trimmed.slice(0, 60) + '"'); i++; continue; }
+    const tag = tagMatch[1].toUpperCase();
+    const rest = tagMatch[2].trim();
+    i++;
+
+    if (tag === "HEADING" || tag === "HEADING2") {
+      blocks.push({ type: "heading", level: "h2", text: rest });
+    } else if (tag === "HEADING3") {
+      blocks.push({ type: "heading", level: "h3", text: rest });
+    } else if (tag === "DIVIDER") {
+      blocks.push({ type: "divider" });
+    } else if (tag === "IMAGE") {
+      const parts = rest.split("|").map((s) => s.trim());
+      blocks.push({ type: "image", url: parts[0] || "", caption: parts[1] || "" });
+    } else if (tag === "YOUTUBE") {
+      blocks.push({ type: "youtube", url: rest });
+    } else if (tag === "TEXT" || tag === "TIP" || tag === "WARNING") {
+      const bodyLines = rest ? [rest] : [];
+      while (i < lines.length && !isTagLine(lines[i])) { bodyLines.push(lines[i]); i++; }
+      const html = textToRichHtml(bodyLines.join("\n"));
+      blocks.push({ type: tag === "TEXT" ? "richtext" : tag.toLowerCase(), html });
+    } else if (tag === "ACCORDION") {
+      const items = [];
+      while (i < lines.length && !isTagLine(lines[i])) {
+        const itemLine = lines[i].trim(); i++;
+        if (!itemLine) continue;
+        const m2 = itemLine.match(/^-\s*(.+?):\s*(.+)$/);
+        if (m2) items.push({ title: m2[1].trim(), content: m2[2].trim() });
+        else warnings.push('Could not read an accordion line (expected "- Title: Content"): "' + itemLine.slice(0, 60) + '"');
+      }
+      blocks.push({ type: "accordion", items });
+    } else if (tag === "QUIZ") {
+      const questions = [];
+      let current = null;
+      while (i < lines.length && !isTagLine(lines[i])) {
+        const qLine = lines[i].trim(); i++;
+        if (!qLine) continue;
+        const qMatch = qLine.match(/^Q:\s*(.+)$/i);
+        const aMatch = qLine.match(/^A:\s*(.+)$/i);
+        if (qMatch) {
+          if (current) questions.push(current);
+          current = { text: qMatch[1].trim(), options: [], correctIndex: 0 };
+        } else if (aMatch && current) {
+          let optText = aMatch[1].trim();
+          const isCorrect = /\*\s*$/.test(optText);
+          optText = optText.replace(/\*\s*$/, "").trim();
+          if (isCorrect) current.correctIndex = current.options.length;
+          current.options.push(optText);
+        } else {
+          warnings.push('Could not read a quiz line (expected "Q: ..." or "A: ..."): "' + qLine.slice(0, 60) + '"');
+        }
+      }
+      if (current) questions.push(current);
+      questions.forEach((q) => {
+        if (q.options.length !== 4) warnings.push('Question "' + q.text.slice(0, 40) + '" had ' + q.options.length + ' options, not 4 -- padded/trimmed to 4.');
+        while (q.options.length < 4) q.options.push("");
+        q.options = q.options.slice(0, 4);
+      });
+      blocks.push({ type: "quiz", questions });
+    } else {
+      warnings.push("Unknown tag [" + tag + "], skipped.");
+    }
+  }
+
+  if (!meta.title) warnings.push('No "TITLE:" line found — will be saved as "Untitled lesson".');
+  if (!blocks.length) warnings.push("No blocks were recognised. Check tags are spelled like [HEADING] or [TEXT] with square brackets.");
+  return { meta, blocks, warnings };
+}
+
+const COMMAND_BLOCK_PREVIEW_LABEL = {
+  heading: "Heading", richtext: "Text", tip: "Tip box", warning: "Warning box",
+  divider: "Divider", image: "Image", youtube: "YouTube", accordion: "Accordion", quiz: "Quiz",
+};
+function renderCommandBlockPreview(block) {
+  const label = COMMAND_BLOCK_PREVIEW_LABEL[block.type] || block.type;
+  let body = "";
+  if (block.type === "heading") body = "<strong>" + escapeHtml(block.text) + "</strong>";
+  else if (block.type === "richtext" || block.type === "tip" || block.type === "warning") body = block.html;
+  else if (block.type === "divider") body = "<hr>";
+  else if (block.type === "image") body = escapeHtml(block.url) + (block.caption ? " — " + escapeHtml(block.caption) : "");
+  else if (block.type === "youtube") body = escapeHtml(block.url);
+  else if (block.type === "accordion") body = block.items.map((it) => "<p><strong>" + escapeHtml(it.title) + "</strong>: " + escapeHtml(it.content) + "</p>").join("");
+  else if (block.type === "quiz") body = block.questions.map((q, qi) =>
+    "<p><strong>" + (qi + 1) + ". " + escapeHtml(q.text) + "</strong><br>" +
+    q.options.map((o, oi) => (oi === q.correctIndex ? "✓ " : "• ") + escapeHtml(o)).join("<br>") + "</p>"
+  ).join("");
+  return '<div class="block-editor-item"><div class="block-type-label">' + label + '</div><div class="rte-render">' + body + '</div></div>';
+}
+
+let __commandLastParsed = null;
+function initCommandPanel() {
+  document.getElementById("copyCommandSyntaxBtn").onclick = () => {
+    navigator.clipboard.writeText(COMMAND_SYNTAX_GUIDE).then(
+      () => showToast("Syntax guide copied — paste it into an AI chat."),
+      () => showToast("Couldn't copy automatically. Select and copy the guide manually.")
+    );
+  };
+  document.getElementById("loadCommandExampleBtn").onclick = () => {
+    document.getElementById("commandInputArea").value = COMMAND_EXAMPLE_TEXT;
+  };
+  document.getElementById("parseCommandBtn").onclick = () => {
+    const raw = document.getElementById("commandInputArea").value;
+    const parsed = parseLessonCommandText(raw);
+    __commandLastParsed = parsed;
+    const alertHost = document.getElementById("commandParseAlert");
+    const previewHost = document.getElementById("commandPreviewHost");
+
+    alertHost.innerHTML = parsed.warnings.length
+      ? '<div class="alert alert-error"><strong>' + parsed.warnings.length + ' thing(s) to check:</strong><ul style="margin:6px 0 0 18px;">' +
+        parsed.warnings.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul></div>"
+      : '<div class="alert alert-success">Parsed cleanly — ' + parsed.blocks.length + " block(s) found.</div>";
+
+    previewHost.innerHTML =
+      '<h4 style="margin-bottom:8px;">' + escapeHtml(parsed.meta.title || "(untitled)") + '</h4>' +
+      '<p style="color:var(--ink-soft); margin-bottom:14px;">' + escapeHtml(parsed.meta.category) + " · " + escapeHtml(parsed.meta.difficulty) +
+      " · " + parsed.meta.estimatedMinutes + " min · ⚡ " + parsed.meta.xpReward + " EXP</p>" +
+      parsed.blocks.map(renderCommandBlockPreview).join("") +
+      '<button class="btn btn-primary" id="createCommandLessonBtn" style="margin-top:16px;">Create this lesson (as a draft)</button>';
+
+    document.getElementById("createCommandLessonBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("createCommandLessonBtn");
+      btn.disabled = true; btn.textContent = "Creating…";
+      try {
+        const snap = await db.collection("lessons").get();
+        let maxOrder = 0;
+        snap.forEach((d) => { maxOrder = Math.max(maxOrder, (d.data().order || 0)); });
+        const doc = await db.collection("lessons").add({
+          title: parsed.meta.title || "Untitled lesson",
+          category: parsed.meta.category,
+          difficulty: parsed.meta.difficulty,
+          estimatedMinutes: parsed.meta.estimatedMinutes,
+          xpReward: parsed.meta.xpReward,
+          blocks: parsed.blocks,
+          levelId: "",
+          order: maxOrder + 1,
+          published: false, // always a draft -- reviewed and published by hand, never auto-live
+        });
+        showToast("Lesson created as a draft. Opening it for a final look…");
+        document.getElementById("commandInputArea").value = "";
+        previewHost.innerHTML = ""; alertHost.innerHTML = "";
+        const created = await db.collection("lessons").doc(doc.id).get();
+        openLessonEditor({ id: created.id, ...created.data() });
+      } catch (err) {
+        showToast(describeFirebaseError(err));
+        btn.disabled = false; btn.textContent = "Create this lesson (as a draft)";
+      }
+    });
+  };
 }
 
 async function openLessonEditor(lesson) {
