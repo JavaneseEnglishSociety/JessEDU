@@ -609,7 +609,29 @@ async function loadActivitiesPanel() {
 }
 document.getElementById("activityLevelSelect").addEventListener("change", loadActivitiesList);
 document.querySelectorAll("[data-new-activity]").forEach(btn => {
-  btn.addEventListener("click", () => openActivityEditor(null, btn.getAttribute("data-new-activity")));
+  btn.addEventListener("click", async () => {
+    // Same bug just fixed in the Command Panel, present here too:
+    // a brand new activity's Order field always defaulted to 0
+    // regardless of what's already in this level. With Units 1-3
+    // already occupying orders 1-3, a new one saved without manually
+    // fixing this would silently take order 0 and jump to the FRONT
+    // of the level, not the end -- confusing at best, and it breaks
+    // the "finish the previous one first" lock in a way that's hard
+    // to notice just by looking at the list. Auto-filling the actual
+    // next number for the level currently selected removes the need
+    // to remember to do this by hand.
+    const levelId = document.getElementById("activityLevelSelect").value;
+    let nextOrder = 1;
+    try {
+      const snap = await db.collection("activities").where("levelId", "==", levelId).get();
+      let maxOrder = 0;
+      snap.forEach((d) => { maxOrder = Math.max(maxOrder, d.data().order || 0); });
+      nextOrder = maxOrder + 1;
+    } catch (e) { /* fall back to 1 if this lookup fails for any reason */ }
+    openActivityEditor(null, btn.getAttribute("data-new-activity"));
+    const orderInput = document.getElementById("actOrderInput");
+    if (orderInput) orderInput.value = nextOrder;
+  });
 });
 
 async function loadActivitiesList() {
@@ -2456,10 +2478,15 @@ const AI_ACTIVITY_TYPES = ["quiz", "match", "fill", "memoryFlip", "wordScramble"
 // speed/quality/context tradeoff. Rather than hardcoding one, the admin
 // picks from a dropdown -- the choice is remembered in this browser via
 // localStorage so it doesn't reset every time the panel reopens.
+// Groq deprecates models on fairly short notice -- llama-3.3-70b-versatile,
+// llama-3.1-8b-instant, and llama3-70b-8192 (all previously listed here)
+// were retired, which is exactly what broke this. Replaced with Groq's
+// own current recommendations. If this breaks again, check
+// https://console.groq.com/docs/models for what's currently live.
 const GROQ_MODELS = [
-  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (best quality, default)" },
-  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B (fastest)" },
-  { id: "llama3-70b-8192", label: "Llama 3 70B" },
+  { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B (best quality, default)" },
+  { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B (fastest)" },
+  { id: "qwen/qwen3.6-27b", label: "Qwen 3.6 27B" },
   { id: "gemma2-9b-it", label: "Gemma 2 9B" },
 ];
 const GROQ_DEFAULT_MODEL = GROQ_MODELS[0].id;
@@ -2563,7 +2590,11 @@ async function callGroq(messages, model) {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error("Groq request failed (" + res.status + "). " + detail.slice(0, 300));
+    const isModelIssue = /model_not_found|model_decommissioned/i.test(detail);
+    throw new Error(
+      "Groq request failed (" + res.status + "). " + detail.slice(0, 300) +
+      (isModelIssue ? "\n\nThis model has likely been retired by Groq. Check https://console.groq.com/docs/models for what's currently available, then update the model list." : "")
+    );
   }
   const data = await res.json();
   const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
