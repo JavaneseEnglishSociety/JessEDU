@@ -1446,30 +1446,16 @@ function textToRichHtml(raw) {
 // collected as warnings rather than aborting the whole thing, since an
 // AI's output might have small quirks worth flagging rather than
 // silently dropping the entire lesson over one bad line.
-function parseLessonCommandText(text) {
-  const lines = String(text || "").split(/\r?\n/);
-  const meta = { title: "", category: LESSON_CATEGORIES[0], difficulty: LESSON_DIFFICULTIES[0], estimatedMinutes: 5, xpReward: 25 };
+// Shared [TAG]-block parser used by BOTH the Lessons command panel and
+// a TYPE: lesson activity in the Activities command panel -- a
+// "lesson" is the same block-based content either way, the only
+// difference is which collection it's saved to and whether it has a
+// levelId attaching it to a level's path.
+function parseBlockTagsFromLines(lines) {
   const blocks = [];
   const warnings = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i].trim();
-    if (!line) { i++; continue; }
-    if (line.startsWith("[")) break;
-    const m = line.match(/^([A-Za-z]+):\s*(.*)$/);
-    if (m) {
-      const key = m[1].toUpperCase(), val = m[2].trim();
-      if (key === "TITLE") meta.title = val;
-      else if (key === "CATEGORY") meta.category = LESSON_CATEGORIES.find((c) => c.toLowerCase() === val.toLowerCase()) || val;
-      else if (key === "DIFFICULTY") meta.difficulty = LESSON_DIFFICULTIES.find((d) => d.toLowerCase() === val.toLowerCase()) || val;
-      else if (key === "MINUTES") meta.estimatedMinutes = parseInt(val, 10) || 5;
-      else if (key === "EXP") meta.xpReward = parseInt(val, 10) || 25;
-    }
-    i++;
-  }
-
   const isTagLine = (l) => /^\s*\[[A-Za-z0-9]+\]/.test(l || "");
+  let i = 0;
 
   while (i < lines.length) {
     const trimmed = lines[i].trim();
@@ -1538,6 +1524,33 @@ function parseLessonCommandText(text) {
       warnings.push("Unknown tag [" + tag + "], skipped.");
     }
   }
+  return { blocks, warnings };
+}
+
+function parseLessonCommandText(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const meta = { title: "", category: LESSON_CATEGORIES[0], difficulty: LESSON_DIFFICULTIES[0], estimatedMinutes: 5, xpReward: 25 };
+  const warnings = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) { i++; continue; }
+    if (line.startsWith("[")) break;
+    const m = line.match(/^([A-Za-z]+):\s*(.*)$/);
+    if (m) {
+      const key = m[1].toUpperCase(), val = m[2].trim();
+      if (key === "TITLE") meta.title = val;
+      else if (key === "CATEGORY") meta.category = LESSON_CATEGORIES.find((c) => c.toLowerCase() === val.toLowerCase()) || val;
+      else if (key === "DIFFICULTY") meta.difficulty = LESSON_DIFFICULTIES.find((d) => d.toLowerCase() === val.toLowerCase()) || val;
+      else if (key === "MINUTES") meta.estimatedMinutes = parseInt(val, 10) || 5;
+      else if (key === "EXP") meta.xpReward = parseInt(val, 10) || 25;
+    }
+    i++;
+  }
+
+  const { blocks, warnings: blockWarnings } = parseBlockTagsFromLines(lines.slice(i));
+  warnings.push(...blockWarnings);
 
   if (!meta.title) warnings.push('No "TITLE:" line found — will be saved as "Untitled lesson".');
   if (!blocks.length) warnings.push("No blocks were recognised. Check tags are spelled like [HEADING] or [TEXT] with square brackets.");
@@ -1743,6 +1756,11 @@ CATEGORY_B: only for TYPE: categorize — the second bucket's name
 
 Then a blank line, then the body, which depends on TYPE:
 
+TYPE: lesson
+  Uses the exact same [HEADING], [TEXT], [TIP], [WARNING], [DIVIDER], [ACCORDION], and [QUIZ] tags as a
+  standalone lesson (see the Lessons section of this guide). This is what creates real reading content
+  INSIDE a level's path, as opposed to the free-browse Library.
+
 TYPE: quiz
 Q: the question
 A: a wrong option
@@ -1789,6 +1807,7 @@ ITEM: another word = B
 Write the whole activity now using only this format, nothing else around it.`;
 
 const ACTIVITY_EXAMPLE_TEXT = {
+  lesson: `TITLE: Greetings\nTYPE: lesson\nLEVEL: Everyday Words\nXP: 25\n\n[HEADING] Saying Hello\n[TEXT]\nIn English, "hello" and "hi" are the two most common greetings. "Hi" is a little more casual than "hello".\n\n[TIP]\nTry greeting someone new every day, even just in your head, to build the habit.\n\n[QUIZ]\nQ: Which greeting is more casual?\nA: Hello\nA: Hi *\nA: Good morning\nA: Good evening`,
   quiz: `TITLE: Fruit Quiz\nTYPE: quiz\nLEVEL: Everyday Words\nXP: 20\n\nQ: Which one is red?\nA: Apple *\nA: Banana\nA: Grape\nA: Lemon\nQ: Which one is yellow?\nA: Grape\nA: Banana *\nA: Apple\nA: Grape`,
   match: `TITLE: Family Match\nTYPE: match\nLEVEL: Everyday Words\nXP: 15\n\nPAIR: Mother = Ibu\nPAIR: Father = Ayah\nPAIR: Sister = Kakak`,
   fill: `TITLE: Fill the Blank\nTYPE: fill\nLEVEL: Everyday Words\nXP: 15\n\nITEM: I ___ to school every day. = go\nITEM: She ___ a book right now. = is reading`,
@@ -1839,7 +1858,15 @@ function parseActivityCommandText(text) {
   const bodyLinesTrimmed = bodyText.split("\n").map((l) => l.trim()).filter(Boolean);
   let payload = null;
 
-  if (meta.type === "quiz") {
+  if (meta.type === "lesson") {
+    // A "lesson" activity is the same block content (headings, text,
+    // tip/warning boxes, accordion, quiz) as a standalone Library
+    // lesson -- the only difference is this one has a levelId and
+    // lives inside a level's path instead of the free-browse Library.
+    const { blocks, warnings: blockWarnings } = parseBlockTagsFromLines(bodyLines);
+    warnings.push(...blockWarnings);
+    payload = { blocks };
+  } else if (meta.type === "quiz") {
     const questions = [];
     let current = null;
     bodyLinesTrimmed.forEach((l) => {
