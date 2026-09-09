@@ -123,6 +123,10 @@
             <button class="btn btn-outline btn-sm" data-new-activity="wordScramble">+ Word scramble</button>
             <button class="btn btn-outline btn-sm" data-new-activity="speedRound">+ Speed round</button>
             <button class="btn btn-outline btn-sm" data-new-activity="picturePop">+ Picture pop</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="oddOneOut">+ Odd one out</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="sentenceOrder">+ Sentence order</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="listenType">+ Listen and type</button>
+            <button class="btn btn-outline btn-sm" data-new-activity="categorize">+ Categorize</button>
           </div>
         </div>
         <div id="activitiesListHost"></div>
@@ -140,6 +144,10 @@
           Describe what you want ("a beginner quiz about fruit, 5 questions" or "a word match for family members"), and the assistant will draft it using the exact same blocks you can build by hand: quiz, word match, fill in the blank, flashcards, memory flip, word scramble, speed round, or picture pop. Nothing is saved to the site until you open the draft in the normal editor and press Save yourself.
         </div>
         <div class="sheet" style="padding:0; overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--rule);">
+            <label for="aiModelSelect" style="font-size:0.85rem; color:var(--ink-2); white-space:nowrap;">Model</label>
+            <select id="aiModelSelect" style="flex:1; padding:6px 10px; border:1px solid var(--rule-dark); border-radius:var(--r-sm); background:var(--sheet);"></select>
+          </div>
           <div id="aiChatLog" class="ai-chat-log"></div>
           <form id="aiChatForm" class="ai-chat-form">
             <input type="text" id="aiChatInput" placeholder="Ask for a quiz, word match, flashcards…" autocomplete="off">
@@ -162,24 +170,67 @@
 
       <section id="adminPanelCommands" hidden>
         <div class="area-head">
-          <div><p class="folio">Command Panel</p><h2 style="margin:0;">Write a lesson in plain text</h2></div>
+          <div><p class="folio">Command Panel</p><h2 style="margin:0;">Write content in plain text</h2></div>
         </div>
-        <div class="alert alert-info" style="margin-bottom:18px;">
-          Type or paste text using the tags below and it becomes a real lesson with real blocks — no clicking
-          through the block editor by hand. This is also written so an AI (ChatGPT, Claude, whatever you use)
-          can generate the text for you: press "Copy the syntax guide" and paste it into a chat along with what
-          you want the lesson to cover, then paste whatever it writes back in here.
+        <div class="cat-strip" style="margin-bottom:18px;">
+          <button class="btn btn-secondary btn-sm cmd-subtab active" data-cmd-subtab="lessons">Lessons</button>
+          <button class="btn btn-secondary btn-sm cmd-subtab" data-cmd-subtab="levels">Levels</button>
+          <button class="btn btn-secondary btn-sm cmd-subtab" data-cmd-subtab="activities">Activities</button>
         </div>
-        <div class="card-row" style="margin-bottom:14px;">
-          <button class="btn btn-secondary btn-sm" id="copyCommandSyntaxBtn">Copy the syntax guide</button>
-          <button class="btn btn-secondary btn-sm" id="loadCommandExampleBtn">Load an example</button>
+
+        <div id="cmdSubpanelLessons">
+          <div class="alert alert-info" style="margin-bottom:18px;">
+            Type or paste text using the tags below and it becomes a real lesson with real blocks — no clicking
+            through the block editor by hand. This is also written so an AI (ChatGPT, Claude, whatever you use)
+            can generate the text for you: press "Copy the syntax guide" and paste it into a chat along with what
+            you want the lesson to cover, then paste whatever it writes back in here.
+          </div>
+          <div class="card-row" style="margin-bottom:14px;">
+            <button class="btn btn-secondary btn-sm" id="copyCommandSyntaxBtn">Copy the syntax guide</button>
+            <button class="btn btn-secondary btn-sm" id="loadCommandExampleBtn">Load an example</button>
+          </div>
+          <textarea id="commandInputArea" rows="16" style="width:100%; font-family:monospace; font-size:0.86rem; padding:14px; border:1px solid var(--rule-dark); border-radius:var(--r); background:var(--sheet);" placeholder="TITLE: Colors&#10;CATEGORY: Vocabulary&#10;DIFFICULTY: Beginner&#10;&#10;[HEADING] Basic Colors&#10;[TEXT]&#10;Red, blue, and green are common colors."></textarea>
+          <div style="display:flex; gap:10px; margin-top:14px;">
+            <button class="btn btn-solid" id="parseCommandBtn">Parse and preview</button>
+          </div>
+          <div id="commandParseAlert" style="margin-top:14px;"></div>
+          <div id="commandPreviewHost" style="margin-top:20px;"></div>
         </div>
-        <textarea id="commandInputArea" rows="16" style="width:100%; font-family:monospace; font-size:0.86rem; padding:14px; border:1px solid var(--rule-dark); border-radius:var(--r); background:var(--sheet);" placeholder="TITLE: Colors&#10;CATEGORY: Vocabulary&#10;DIFFICULTY: Beginner&#10;&#10;[HEADING] Basic Colors&#10;[TEXT]&#10;Red, blue, and green are common colors."></textarea>
-        <div style="display:flex; gap:10px; margin-top:14px;">
-          <button class="btn btn-solid" id="parseCommandBtn">Parse and preview</button>
+
+        <div id="cmdSubpanelLevels" hidden>
+          <div class="alert alert-info" style="margin-bottom:18px;">
+            Create a level (a chapter in the learning path) from a few plain lines. Levels don't have content
+            blocks of their own — activities and lessons are attached to a level afterward.
+          </div>
+          <div class="card-row" style="margin-bottom:14px;">
+            <button class="btn btn-secondary btn-sm" id="copyLevelSyntaxBtn">Copy the syntax guide</button>
+            <button class="btn btn-secondary btn-sm" id="loadLevelExampleBtn">Load an example</button>
+          </div>
+          <textarea id="levelCommandInputArea" rows="8" style="width:100%; font-family:monospace; font-size:0.86rem; padding:14px; border:1px solid var(--rule-dark); border-radius:var(--r); background:var(--sheet);" placeholder="TITLE: Everyday Words&#10;DESCRIPTION: Learn common words used every day.&#10;ORDER: 2"></textarea>
+          <div style="display:flex; gap:10px; margin-top:14px;">
+            <button class="btn btn-solid" id="parseLevelCommandBtn">Parse and preview</button>
+          </div>
+          <div id="levelCommandParseAlert" style="margin-top:14px;"></div>
+          <div id="levelCommandPreviewHost" style="margin-top:20px;"></div>
         </div>
-        <div id="commandParseAlert" style="margin-top:14px;"></div>
-        <div id="commandPreviewHost" style="margin-top:20px;"></div>
+
+        <div id="cmdSubpanelActivities" hidden>
+          <div class="alert alert-info" style="margin-bottom:18px;">
+            Create any of the 15 activity types from plain text. Start with a TYPE: line to pick which one —
+            the syntax guide lists the exact body format for each type.
+          </div>
+          <div class="card-row" style="margin-bottom:14px;">
+            <button class="btn btn-secondary btn-sm" id="copyActivitySyntaxBtn">Copy the syntax guide</button>
+            <select id="activityExampleTypeSelect" style="padding:6px 10px; border:1px solid var(--rule-dark); border-radius:var(--r-sm);"></select>
+            <button class="btn btn-secondary btn-sm" id="loadActivityExampleBtn">Load an example</button>
+          </div>
+          <textarea id="activityCommandInputArea" rows="14" style="width:100%; font-family:monospace; font-size:0.86rem; padding:14px; border:1px solid var(--rule-dark); border-radius:var(--r); background:var(--sheet);" placeholder="TITLE: Fruit Quiz&#10;TYPE: quiz&#10;LEVEL: Everyday Words&#10;XP: 20&#10;&#10;Q: Which one is red?&#10;A: Apple *&#10;A: Banana&#10;A: Grape&#10;A: Lemon"></textarea>
+          <div style="display:flex; gap:10px; margin-top:14px;">
+            <button class="btn btn-solid" id="parseActivityCommandBtn">Parse and preview</button>
+          </div>
+          <div id="activityCommandParseAlert" style="margin-top:14px;"></div>
+          <div id="activityCommandPreviewHost" style="margin-top:20px;"></div>
+        </div>
       </section>
 
       <!-- Placement quiz -->

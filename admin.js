@@ -583,8 +583,9 @@ const ACTIVITY_TYPE_LABEL = {
   quiz: "Quiz", match: "Word match", fill: "Fill in the blank", lesson: "Lesson",
   flashcards: "Flashcards", listening: "Listening", reading: "Reading", sentenceBuilder: "Sentence builder",
   memoryFlip: "Memory flip", wordScramble: "Word scramble", speedRound: "Speed round", picturePop: "Picture pop",
+  oddOneOut: "Odd one out", sentenceOrder: "Sentence order", listenType: "Listen and type", categorize: "Categorize",
 };
-const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20, memoryFlip: 20, wordScramble: 15, speedRound: 25, picturePop: 15 };
+const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20, memoryFlip: 20, wordScramble: 15, speedRound: 25, picturePop: 15, oddOneOut: 15, sentenceOrder: 20, listenType: 20, categorize: 15 };
 
 async function loadActivitiesPanel() {
   const select = document.getElementById("activityLevelSelect");
@@ -747,7 +748,8 @@ function openActivityEditor(activity, forceType, aiPrefill) {
   const levelId = document.getElementById("activityLevelSelect").value;
   const defaultXp = (activity && activity.xpReward) || DEFAULT_XP_BY_TYPE[type] || 10;
   const isRowType = type === "quiz" || type === "match" || type === "fill" ||
-    type === "memoryFlip" || type === "wordScramble" || type === "speedRound" || type === "picturePop";
+    type === "memoryFlip" || type === "wordScramble" || type === "speedRound" || type === "picturePop" ||
+    type === "oddOneOut" || type === "sentenceOrder" || type === "listenType" || type === "categorize";
 
   let bodyHtml =
     '<h3 style="margin-bottom:16px;">' + (isNew ? "New " + ACTIVITY_TYPE_LABEL[type] : "Edit " + ACTIVITY_TYPE_LABEL[type]) + '</h3>' +
@@ -799,20 +801,43 @@ function openActivityEditor(activity, forceType, aiPrefill) {
         rows = source && source.payload && source.payload.statements
           ? source.payload.statements.map(st => ({ text: st.text, isTrue: !!st.isTrue }))
           : [{ text: "", isTrue: true }];
-      } else {
+      } else if (type === "picturePop") {
         rows = source && source.payload && source.payload.rounds
           ? source.payload.rounds.map(r => ({ word: r.word, correctEmoji: r.correctEmoji, decoyEmojis: (r.decoyEmojis || []).join(" ") }))
           : [{ word: "", correctEmoji: "", decoyEmojis: "" }];
+      } else if (type === "oddOneOut") {
+        rows = source && source.payload && source.payload.rounds
+          ? source.payload.rounds.map(r => ({ words: (r.words || []).join(", "), oddWord: (r.words || [])[r.oddIndex] || "" }))
+          : [{ words: "", oddWord: "" }];
+      } else if (type === "sentenceOrder") {
+        rows = source && source.payload && source.payload.sentences
+          ? source.payload.sentences.map(s => ({ words: (s.words || []).join(" "), hint: s.hint || "" }))
+          : [{ words: "", hint: "" }];
+      } else if (type === "listenType") {
+        rows = source && source.payload && source.payload.items
+          ? source.payload.items.map(i => ({ text: i.text, lang: i.lang || "en" }))
+          : [{ text: "", lang: "en" }];
+      } else {
+        rows = source && source.payload && source.payload.items
+          ? source.payload.items.map(i => ({ word: i.word, category: i.category || "A" }))
+          : [{ word: "", category: "A" }];
       }
 
       const ROW_ADD_LABEL = {
         quiz: "question", match: "pair", fill: "item",
-        memoryFlip: "pair", wordScramble: "word", speedRound: "statement", picturePop: "round"
+        memoryFlip: "pair", wordScramble: "word", speedRound: "statement", picturePop: "round",
+        oddOneOut: "round", sentenceOrder: "sentence", listenType: "word/phrase", categorize: "item"
       };
       typeBodyHost.innerHTML =
         (type === "speedRound"
           ? '<div class="field"><label>Time limit (seconds)</label><input type="number" id="speedSecondsInput" min="10" max="180" value="' +
             (source && source.payload && source.payload.seconds ? source.payload.seconds : 30) + '"></div>'
+          : "") +
+        (type === "categorize"
+          ? '<div class="card-row" style="gap:12px;">' +
+            '<div class="field" style="flex:1;"><label>Category A name</label><input type="text" id="catAInput" value="' + escapeAttr((source && source.payload && source.payload.categoryA) || "Category A") + '"></div>' +
+            '<div class="field" style="flex:1;"><label>Category B name</label><input type="text" id="catBInput" value="' + escapeAttr((source && source.payload && source.payload.categoryB) || "Category B") + '"></div>' +
+            '</div>'
           : "") +
         '<div id="actRowsHost"></div>' +
         '<button class="btn btn-secondary btn-sm" id="addRowBtn" type="button" style="margin-bottom:16px;">+ Add ' + ROW_ADD_LABEL[type] + '</button>';
@@ -865,12 +890,44 @@ function openActivityEditor(activity, forceType, aiPrefill) {
             '<div class="field"><label><input type="checkbox" class="speed-true-check" data-qi="' + i + '" ' + (st.isTrue ? "checked" : "") + ' style="width:auto;"> True</label></div>' +
             '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
           ).join("");
-        } else {
+        } else if (type === "picturePop") {
           rowsHost.innerHTML = rows.map((r, i) =>
             '<div class="repeat-row">' +
             '<div class="field"><label>Word ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="word" value="' + escapeAttr(r.word) + '"></div>' +
             '<div class="field"><label>Correct emoji</label><input type="text" data-qi="' + i + '" data-f="correctEmoji" value="' + escapeAttr(r.correctEmoji) + '" placeholder="🐱"></div>' +
             '<div class="field"><label>Decoy emojis <span class="field-hint" style="display:inline;">(space-separated)</span></label><input type="text" data-qi="' + i + '" data-f="decoyEmojis" value="' + escapeAttr(r.decoyEmojis) + '" placeholder="🐶 🐦 🐟"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else if (type === "oddOneOut") {
+          rowsHost.innerHTML = rows.map((r, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field" style="flex:2;"><label>Words, round ' + (i + 1) + ' <span class="field-hint" style="display:inline;">(comma-separated, 3 to 5 words)</span></label><input type="text" data-qi="' + i + '" data-f="words" value="' + escapeAttr(r.words) + '" placeholder="Apple, Banana, Car, Grape"></div>' +
+            '<div class="field"><label>The odd one out</label><input type="text" data-qi="' + i + '" data-f="oddWord" value="' + escapeAttr(r.oddWord) + '" placeholder="Car"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else if (type === "sentenceOrder") {
+          rowsHost.innerHTML = rows.map((r, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field" style="flex:2;"><label>Sentence ' + (i + 1) + ' <span class="field-hint" style="display:inline;">(correct word order)</span></label><input type="text" data-qi="' + i + '" data-f="words" value="' + escapeAttr(r.words) + '" placeholder="I like apples"></div>' +
+            '<div class="field"><label>Hint <span class="field-hint" style="display:inline;">(optional)</span></label><input type="text" data-qi="' + i + '" data-f="hint" value="' + escapeAttr(r.hint) + '"></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else if (type === "listenType") {
+          rowsHost.innerHTML = rows.map((r, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field" style="flex:2;"><label>Word or phrase ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="text" value="' + escapeAttr(r.text) + '"></div>' +
+            '<div class="field"><label>Language spoken</label><select data-qi="' + i + '" data-f="lang" data-select="1">' +
+            '<option value="en" ' + (r.lang === "en" ? "selected" : "") + '>English</option>' +
+            '<option value="id" ' + (r.lang === "id" ? "selected" : "") + '>Indonesian</option></select></div>' +
+            '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
+          ).join("");
+        } else {
+          rowsHost.innerHTML = rows.map((r, i) =>
+            '<div class="repeat-row">' +
+            '<div class="field" style="flex:2;"><label>Word ' + (i + 1) + '</label><input type="text" data-qi="' + i + '" data-f="word" value="' + escapeAttr(r.word) + '"></div>' +
+            '<div class="field"><label>Category</label><select data-qi="' + i + '" data-f="category" data-select="1">' +
+            '<option value="A" ' + (r.category === "A" ? "selected" : "") + '>Category A</option>' +
+            '<option value="B" ' + (r.category === "B" ? "selected" : "") + '>Category B</option></select></div>' +
             '<button type="button" class="remove-row-btn" data-remove="' + i + '">✕</button></div>'
           ).join("");
         }
@@ -879,6 +936,10 @@ function openActivityEditor(activity, forceType, aiPrefill) {
           const f = inp.getAttribute("data-f");
           if (f === "opt") rows[qi].options[parseInt(inp.getAttribute("data-oi"), 10)] = inp.value;
           else rows[qi][f] = inp.value;
+        }));
+        rowsHost.querySelectorAll("select[data-select]").forEach(sel => sel.addEventListener("change", () => {
+          const qi = parseInt(sel.getAttribute("data-qi"), 10);
+          rows[qi][sel.getAttribute("data-f")] = sel.value;
         }));
         rowsHost.querySelectorAll(".correct-radio").forEach(r => r.addEventListener("change", () => {
           rows[parseInt(r.getAttribute("data-qi"), 10)].correctIndex = parseInt(r.getAttribute("data-oi"), 10);
@@ -899,7 +960,11 @@ function openActivityEditor(activity, forceType, aiPrefill) {
         else if (type === "memoryFlip") rows.push({ a: "", b: "" });
         else if (type === "wordScramble") rows.push({ word: "", hint: "" });
         else if (type === "speedRound") rows.push({ text: "", isTrue: true });
-        else rows.push({ word: "", correctEmoji: "", decoyEmojis: "" });
+        else if (type === "picturePop") rows.push({ word: "", correctEmoji: "", decoyEmojis: "" });
+        else if (type === "oddOneOut") rows.push({ words: "", oddWord: "" });
+        else if (type === "sentenceOrder") rows.push({ words: "", hint: "" });
+        else if (type === "listenType") rows.push({ text: "", lang: "en" });
+        else rows.push({ word: "", category: "A" });
         renderRows();
       });
 
@@ -916,12 +981,35 @@ function openActivityEditor(activity, forceType, aiPrefill) {
             seconds: secondsInput ? parseInt(secondsInput.value, 10) || 30 : 30
           };
         }
-        return { rounds: rows.map(r => ({ word: r.word, correctEmoji: r.correctEmoji, decoyEmojis: r.decoyEmojis.split(/\s+/).filter(Boolean) })) };
+        if (type === "picturePop") return { rounds: rows.map(r => ({ word: r.word, correctEmoji: r.correctEmoji, decoyEmojis: r.decoyEmojis.split(/\s+/).filter(Boolean) })) };
+        if (type === "oddOneOut") return {
+          rounds: rows.map(r => {
+            const words = r.words.split(",").map(w => w.trim()).filter(Boolean);
+            const oddIndex = words.findIndex(w => w.toLowerCase() === r.oddWord.trim().toLowerCase());
+            return { words, oddIndex: oddIndex === -1 ? 0 : oddIndex };
+          })
+        };
+        if (type === "sentenceOrder") return { sentences: rows.map(r => ({ words: r.words.trim().split(/\s+/).filter(Boolean), hint: r.hint })) };
+        if (type === "listenType") return { items: rows.map(r => ({ text: r.text, lang: r.lang || "en" })) };
+        return {
+          categoryA: (document.getElementById("catAInput") || {}).value || "Category A",
+          categoryB: (document.getElementById("catBInput") || {}).value || "Category B",
+          items: rows.map(r => ({ word: r.word, category: r.category || "A" }))
+        };
       };
       validate = () => {
         if (!rows.length) return "Add at least one item.";
         if (type === "picturePop" && rows.some(r => !r.correctEmoji || !r.decoyEmojis.trim())) {
           return "Every round needs a correct emoji and at least one decoy emoji.";
+        }
+        if (type === "oddOneOut" && rows.some(r => {
+          const words = r.words.split(",").map(w => w.trim()).filter(Boolean);
+          return words.length < 3 || !words.some(w => w.toLowerCase() === r.oddWord.trim().toLowerCase());
+        })) {
+          return "Every round needs at least 3 words, and the odd word must exactly match one of them.";
+        }
+        if (type === "sentenceOrder" && rows.some(r => r.words.trim().split(/\s+/).filter(Boolean).length < 2)) {
+          return "Every sentence needs at least 2 words.";
         }
         return null;
       };
@@ -1478,6 +1566,21 @@ function renderCommandBlockPreview(block) {
 
 let __commandLastParsed = null;
 function initCommandPanel() {
+  // Three sub-tabs share this one admin panel: Lessons (existing),
+  // Levels, and Activities. Only one call happens per admin session
+  // since each init function guards itself, same pattern as the rest
+  // of this file.
+  document.querySelectorAll(".cmd-subtab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".cmd-subtab").forEach((b) => b.classList.toggle("active", b === btn));
+      const which = btn.getAttribute("data-cmd-subtab");
+      document.getElementById("cmdSubpanelLessons").hidden = which !== "lessons";
+      document.getElementById("cmdSubpanelLevels").hidden = which !== "levels";
+      document.getElementById("cmdSubpanelActivities").hidden = which !== "activities";
+      if (which === "levels") initLevelCommandPanel();
+      if (which === "activities") initActivityCommandPanel();
+    });
+  });
   document.getElementById("copyCommandSyntaxBtn").onclick = () => {
     navigator.clipboard.writeText(COMMAND_SYNTAX_GUIDE).then(
       () => showToast("Syntax guide copied — paste it into an AI chat."),
@@ -1536,6 +1639,380 @@ function initCommandPanel() {
     });
   };
 }
+
+const LEVEL_SYNTAX_GUIDE =
+`Write a JessEDU level (a chapter in the learning path) using this format. Just a few header lines, no blocks or tags needed.
+
+TITLE: the level's title
+DESCRIPTION: a short description of what this level covers
+ORDER: a number — lower numbers appear first in the path
+
+Write it now using only this format, nothing else around it.`;
+
+const LEVEL_EXAMPLE_TEXT =
+`TITLE: Everyday Words
+DESCRIPTION: Learn the words you'll use every single day, at home, at school, and with friends.
+ORDER: 2`;
+
+function parseLevelCommandText(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const meta = { title: "", description: "", order: 0 };
+  const warnings = [];
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const m = trimmed.match(/^([A-Za-z]+):\s*(.*)$/);
+    if (!m) { warnings.push('Ignored a line that isn\'t "KEY: value": "' + trimmed.slice(0, 60) + '"'); return; }
+    const key = m[1].toUpperCase(), val = m[2].trim();
+    if (key === "TITLE") meta.title = val;
+    else if (key === "DESCRIPTION") meta.description = val;
+    else if (key === "ORDER") meta.order = parseInt(val, 10) || 0;
+    else warnings.push('Unknown field "' + key + '", ignored.');
+  });
+  if (!meta.title) warnings.push('No "TITLE:" line found — will be saved as "Untitled level".');
+  return { meta, warnings };
+}
+
+function initLevelCommandPanel() {
+  if (document.getElementById("copyLevelSyntaxBtn").dataset.wired) return;
+  document.getElementById("copyLevelSyntaxBtn").dataset.wired = "1";
+
+  document.getElementById("copyLevelSyntaxBtn").onclick = () => {
+    navigator.clipboard.writeText(LEVEL_SYNTAX_GUIDE).then(
+      () => showToast("Syntax guide copied — paste it into an AI chat."),
+      () => showToast("Couldn't copy automatically. Select and copy the guide manually.")
+    );
+  };
+  document.getElementById("loadLevelExampleBtn").onclick = () => {
+    document.getElementById("levelCommandInputArea").value = LEVEL_EXAMPLE_TEXT;
+  };
+  document.getElementById("parseLevelCommandBtn").onclick = () => {
+    const raw = document.getElementById("levelCommandInputArea").value;
+    const parsed = parseLevelCommandText(raw);
+    const alertHost = document.getElementById("levelCommandParseAlert");
+    const previewHost = document.getElementById("levelCommandPreviewHost");
+
+    alertHost.innerHTML = parsed.warnings.length
+      ? '<div class="alert alert-error"><strong>' + parsed.warnings.length + ' thing(s) to check:</strong><ul style="margin:6px 0 0 18px;">' +
+        parsed.warnings.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul></div>"
+      : '<div class="alert alert-success">Parsed cleanly.</div>';
+
+    previewHost.innerHTML =
+      '<div class="card"><h4 style="margin-bottom:6px;">' + escapeHtml(parsed.meta.title || "(untitled)") + '</h4>' +
+      '<p style="color:var(--ink-soft); margin-bottom:8px;">Order: ' + parsed.meta.order + '</p>' +
+      '<p>' + escapeHtml(parsed.meta.description || "(no description)") + '</p></div>' +
+      '<button class="btn btn-primary" id="createCommandLevelBtn" style="margin-top:16px;">Create this level</button>';
+
+    document.getElementById("createCommandLevelBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("createCommandLevelBtn");
+      btn.disabled = true; btn.textContent = "Creating…";
+      try {
+        await db.collection("levels").add({
+          title: parsed.meta.title || "Untitled level",
+          description: parsed.meta.description || "",
+          order: parsed.meta.order,
+          published: false,
+        });
+        showToast("Level created as a draft.");
+        document.getElementById("levelCommandInputArea").value = "";
+        previewHost.innerHTML = ""; alertHost.innerHTML = "";
+      } catch (err) {
+        showToast(describeFirebaseError(err));
+        btn.disabled = false; btn.textContent = "Create this level";
+      }
+    });
+  };
+}
+
+/* ---------------------------------------------------------
+   Activity commands: one unified parser for all 15 activity types,
+   dispatched on a TYPE: line. Each type has its own small body syntax
+   documented in ACTIVITY_SYNTAX_GUIDE below.
+   --------------------------------------------------------- */
+const ACTIVITY_SYNTAX_GUIDE =
+`Write a JessEDU activity using this format. Start with header lines, then a body whose format depends on TYPE.
+
+Header (TITLE and TYPE required, the rest optional):
+TITLE: the activity's title
+TYPE: one of quiz, match, fill, memoryFlip, wordScramble, speedRound, picturePop, oddOneOut, sentenceOrder, listenType, categorize
+LEVEL: the exact title of an existing level to attach this to (optional)
+XP: a number, how much EXP completing it awards
+SECONDS: only for TYPE: speedRound — the time limit in seconds
+CATEGORY_A: only for TYPE: categorize — the first bucket's name
+CATEGORY_B: only for TYPE: categorize — the second bucket's name
+
+Then a blank line, then the body, which depends on TYPE:
+
+TYPE: quiz
+Q: the question
+A: a wrong option
+A: the correct option *
+A: a wrong option
+A: a wrong option
+  Exactly four A: lines per question, one starred with *. Repeat Q:/A:/A:/A:/A: for more questions.
+
+TYPE: match  (or memoryFlip — same body syntax)
+PAIR: term = definition
+  One per line. For memoryFlip, "term" and "definition" are the two matching cards (e.g. an English word and its Indonesian translation).
+
+TYPE: fill
+ITEM: a sentence with ___ for the blank = the answer
+
+TYPE: wordScramble
+WORD: word = an optional short hint
+
+TYPE: speedRound
+STATEMENT: a statement = true
+STATEMENT: another statement = false
+
+TYPE: picturePop
+ROUND: word = correct_emoji | decoy_emoji decoy_emoji decoy_emoji
+
+TYPE: oddOneOut
+ROUND: word, word, word, word = the odd one out
+  3 to 5 comma-separated words, then the exact odd one after the =.
+
+TYPE: sentenceOrder
+SENTENCE: the sentence in its correct word order
+SENTENCE: another sentence | an optional hint
+
+TYPE: listenType
+WORD: the word or phrase = en
+WORD: another word = id
+  Language is "en" or "id".
+
+TYPE: categorize
+ITEM: a word = A
+ITEM: another word = B
+  "A" and "B" refer to CATEGORY_A and CATEGORY_B from the header.
+
+Write the whole activity now using only this format, nothing else around it.`;
+
+const ACTIVITY_EXAMPLE_TEXT = {
+  quiz: `TITLE: Fruit Quiz\nTYPE: quiz\nLEVEL: Everyday Words\nXP: 20\n\nQ: Which one is red?\nA: Apple *\nA: Banana\nA: Grape\nA: Lemon\nQ: Which one is yellow?\nA: Grape\nA: Banana *\nA: Apple\nA: Grape`,
+  match: `TITLE: Family Match\nTYPE: match\nLEVEL: Everyday Words\nXP: 15\n\nPAIR: Mother = Ibu\nPAIR: Father = Ayah\nPAIR: Sister = Kakak`,
+  fill: `TITLE: Fill the Blank\nTYPE: fill\nLEVEL: Everyday Words\nXP: 15\n\nITEM: I ___ to school every day. = go\nITEM: She ___ a book right now. = is reading`,
+  memoryFlip: `TITLE: Word Memory\nTYPE: memoryFlip\nLEVEL: Everyday Words\nXP: 20\n\nPAIR: Cat = Kucing\nPAIR: Dog = Anjing`,
+  wordScramble: `TITLE: Scramble Practice\nTYPE: wordScramble\nLEVEL: Everyday Words\nXP: 15\n\nWORD: apple = a red or green fruit\nWORD: school = where you learn`,
+  speedRound: `TITLE: True or False\nTYPE: speedRound\nLEVEL: Everyday Words\nXP: 25\nSECONDS: 30\n\nSTATEMENT: The sky is green. = false\nSTATEMENT: Cats can meow. = true`,
+  picturePop: `TITLE: Picture Pop\nTYPE: picturePop\nLEVEL: Everyday Words\nXP: 15\n\nROUND: apple = 🍎 | 🍌 🍇 🍋\nROUND: cat = 🐱 | 🐶 🐦 🐟`,
+  oddOneOut: `TITLE: Odd One Out\nTYPE: oddOneOut\nLEVEL: Everyday Words\nXP: 15\n\nROUND: Apple, Banana, Car, Grape = Car`,
+  sentenceOrder: `TITLE: Sentence Order\nTYPE: sentenceOrder\nLEVEL: Everyday Words\nXP: 20\n\nSENTENCE: I like apples\nSENTENCE: She is my friend | think about who "she" refers to`,
+  listenType: `TITLE: Listen and Type\nTYPE: listenType\nLEVEL: Everyday Words\nXP: 20\n\nWORD: apple = en\nWORD: kucing = id`,
+  categorize: `TITLE: Animals or Fruits\nTYPE: categorize\nLEVEL: Everyday Words\nXP: 15\nCATEGORY_A: Animals\nCATEGORY_B: Fruits\n\nITEM: Cat = A\nITEM: Apple = B\nITEM: Banana = B\nITEM: Dog = A`,
+};
+
+function parseActivityCommandText(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const meta = { title: "", type: "", level: "", xp: 15, seconds: 30, categoryA: "Category A", categoryB: "Category B" };
+  const bodyLines = [];
+  const warnings = [];
+  let inBody = false;
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!inBody) {
+      if (!trimmed) { inBody = true; return; }
+      const m = trimmed.match(/^([A-Za-z_]+):\s*(.*)$/);
+      if (!m) { inBody = true; bodyLines.push(line); return; }
+      const key = m[1].toUpperCase(), val = m[2].trim();
+      if (key === "TITLE") meta.title = val;
+      else if (key === "TYPE") meta.type = val;
+      else if (key === "LEVEL") meta.level = val;
+      else if (key === "XP") meta.xp = parseInt(val, 10) || 15;
+      else if (key === "SECONDS") meta.seconds = parseInt(val, 10) || 30;
+      else if (key === "CATEGORY_A") meta.categoryA = val;
+      else if (key === "CATEGORY_B") meta.categoryB = val;
+      else warnings.push('Unknown field "' + key + '" in the header, ignored.');
+    } else {
+      bodyLines.push(line);
+    }
+  });
+
+  if (!meta.title) warnings.push('No "TITLE:" line found — will be saved as "Untitled activity".');
+  if (!ACTIVITY_TYPE_LABEL[meta.type]) {
+    warnings.push('No valid "TYPE:" line found (or it doesn\'t match a known type) — cannot build a payload.');
+    return { meta, payload: null, warnings };
+  }
+
+  const bodyText = bodyLines.join("\n");
+  const bodyLinesTrimmed = bodyText.split("\n").map((l) => l.trim()).filter(Boolean);
+  let payload = null;
+
+  if (meta.type === "quiz") {
+    const questions = [];
+    let current = null;
+    bodyLinesTrimmed.forEach((l) => {
+      const q = l.match(/^Q:\s*(.+)$/i), a = l.match(/^A:\s*(.+)$/i);
+      if (q) { if (current) questions.push(current); current = { text: q[1].trim(), options: [], correctIndex: 0 }; }
+      else if (a && current) {
+        let opt = a[1].trim();
+        const isCorrect = /\*\s*$/.test(opt);
+        opt = opt.replace(/\*\s*$/, "").trim();
+        if (isCorrect) current.correctIndex = current.options.length;
+        current.options.push(opt);
+      } else warnings.push('Could not read a quiz line: "' + l.slice(0, 60) + '"');
+    });
+    if (current) questions.push(current);
+    questions.forEach((q) => {
+      if (q.options.length !== 4) warnings.push('Question "' + q.text.slice(0, 40) + '" had ' + q.options.length + ' options, not 4.');
+      while (q.options.length < 4) q.options.push("");
+      q.options = q.options.slice(0, 4);
+    });
+    payload = { questions };
+  } else if (meta.type === "match" || meta.type === "memoryFlip") {
+    const pairs = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^PAIR:\s*(.+?)\s*=\s*(.+)$/i);
+      if (m) pairs.push(meta.type === "match" ? { term: m[1].trim(), definition: m[2].trim() } : { a: m[1].trim(), b: m[2].trim() });
+      else warnings.push('Could not read a pair line (expected "PAIR: a = b"): "' + l.slice(0, 60) + '"');
+    });
+    payload = meta.type === "match" ? { pairs } : { pairs };
+  } else if (meta.type === "fill") {
+    const items = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^ITEM:\s*(.+?)\s*=\s*(.+)$/i);
+      if (m) items.push({ sentence: m[1].trim(), answer: m[2].trim() });
+      else warnings.push('Could not read an item line (expected "ITEM: sentence = answer"): "' + l.slice(0, 60) + '"');
+    });
+    payload = { items };
+  } else if (meta.type === "wordScramble") {
+    const words = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^WORD:\s*(.+?)(?:\s*=\s*(.*))?$/i);
+      if (m) words.push({ word: m[1].trim().replace(/\s+/g, ""), hint: (m[2] || "").trim() });
+      else warnings.push('Could not read a word line: "' + l.slice(0, 60) + '"');
+    });
+    payload = { words };
+  } else if (meta.type === "speedRound") {
+    const statements = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^STATEMENT:\s*(.+?)\s*=\s*(true|false)$/i);
+      if (m) statements.push({ text: m[1].trim(), isTrue: m[2].toLowerCase() === "true" });
+      else warnings.push('Could not read a statement line (expected "STATEMENT: text = true/false"): "' + l.slice(0, 60) + '"');
+    });
+    payload = { statements, seconds: meta.seconds };
+  } else if (meta.type === "picturePop") {
+    const rounds = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^ROUND:\s*(.+?)\s*=\s*(\S+)\s*\|\s*(.+)$/i);
+      if (m) rounds.push({ word: m[1].trim(), correctEmoji: m[2].trim(), decoyEmojis: m[3].trim().split(/\s+/).filter(Boolean) });
+      else warnings.push('Could not read a round line (expected "ROUND: word = emoji | decoys"): "' + l.slice(0, 60) + '"');
+    });
+    payload = { rounds };
+  } else if (meta.type === "oddOneOut") {
+    const rounds = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^ROUND:\s*(.+?)\s*=\s*(.+)$/i);
+      if (m) {
+        const words = m[1].split(",").map((w) => w.trim()).filter(Boolean);
+        const oddIndex = words.findIndex((w) => w.toLowerCase() === m[2].trim().toLowerCase());
+        if (words.length < 3 || oddIndex === -1) warnings.push('Round "' + l.slice(0, 50) + '" needs 3+ words and an odd word that exactly matches one of them.');
+        rounds.push({ words, oddIndex: oddIndex === -1 ? 0 : oddIndex });
+      } else warnings.push('Could not read a round line: "' + l.slice(0, 60) + '"');
+    });
+    payload = { rounds };
+  } else if (meta.type === "sentenceOrder") {
+    const sentences = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^SENTENCE:\s*(.+?)(?:\s*\|\s*(.+))?$/i);
+      if (m) sentences.push({ words: m[1].trim().split(/\s+/).filter(Boolean), hint: (m[2] || "").trim() });
+      else warnings.push('Could not read a sentence line: "' + l.slice(0, 60) + '"');
+    });
+    payload = { sentences };
+  } else if (meta.type === "listenType") {
+    const items = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^WORD:\s*(.+?)\s*=\s*(en|id)$/i);
+      if (m) items.push({ text: m[1].trim(), lang: m[2].toLowerCase() });
+      else warnings.push('Could not read a word line (expected "WORD: text = en" or "= id"): "' + l.slice(0, 60) + '"');
+    });
+    payload = { items };
+  } else if (meta.type === "categorize") {
+    const items = [];
+    bodyLinesTrimmed.forEach((l) => {
+      const m = l.match(/^ITEM:\s*(.+?)\s*=\s*(A|B)$/i);
+      if (m) items.push({ word: m[1].trim(), category: m[2].toUpperCase() });
+      else warnings.push('Could not read an item line (expected "ITEM: word = A" or "= B"): "' + l.slice(0, 60) + '"');
+    });
+    payload = { categoryA: meta.categoryA, categoryB: meta.categoryB, items };
+  }
+
+  if (payload && Object.values(payload).every((v) => Array.isArray(v) ? v.length === 0 : false)) {
+    warnings.push("No body lines were recognised for this type. Check the syntax guide for the exact format.");
+  }
+  return { meta, payload, warnings };
+}
+
+function initActivityCommandPanel() {
+  const typeSelect = document.getElementById("activityExampleTypeSelect");
+  if (typeSelect.dataset.wired) return;
+  typeSelect.dataset.wired = "1";
+  typeSelect.innerHTML = Object.keys(ACTIVITY_EXAMPLE_TEXT).map((t) => '<option value="' + t + '">' + escapeHtml(ACTIVITY_TYPE_LABEL[t]) + '</option>').join("");
+
+  document.getElementById("copyActivitySyntaxBtn").onclick = () => {
+    navigator.clipboard.writeText(ACTIVITY_SYNTAX_GUIDE).then(
+      () => showToast("Syntax guide copied — paste it into an AI chat."),
+      () => showToast("Couldn't copy automatically. Select and copy the guide manually.")
+    );
+  };
+  document.getElementById("loadActivityExampleBtn").onclick = () => {
+    document.getElementById("activityCommandInputArea").value = ACTIVITY_EXAMPLE_TEXT[typeSelect.value];
+  };
+  document.getElementById("parseActivityCommandBtn").onclick = async () => {
+    const raw = document.getElementById("activityCommandInputArea").value;
+    const parsed = parseActivityCommandText(raw);
+    const alertHost = document.getElementById("activityCommandParseAlert");
+    const previewHost = document.getElementById("activityCommandPreviewHost");
+
+    alertHost.innerHTML = parsed.warnings.length
+      ? '<div class="alert alert-error"><strong>' + parsed.warnings.length + ' thing(s) to check:</strong><ul style="margin:6px 0 0 18px;">' +
+        parsed.warnings.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul></div>"
+      : '<div class="alert alert-success">Parsed cleanly.</div>';
+
+    if (!parsed.payload) { previewHost.innerHTML = ""; return; }
+
+    previewHost.innerHTML =
+      '<div class="card"><h4 style="margin-bottom:4px;">' + escapeHtml(parsed.meta.title || "(untitled)") + '</h4>' +
+      '<p style="color:var(--ink-soft); margin-bottom:10px;">' + escapeHtml(ACTIVITY_TYPE_LABEL[parsed.meta.type]) +
+      (parsed.meta.level ? " · attach to \"" + escapeHtml(parsed.meta.level) + "\"" : "") + " · ⚡ " + parsed.meta.xp + " EXP</p>" +
+      '<pre style="white-space:pre-wrap; font-size:0.82rem; background:var(--paper-2); padding:10px; border-radius:var(--r-sm);">' +
+      escapeHtml(JSON.stringify(parsed.payload, null, 2)) + '</pre></div>' +
+      '<button class="btn btn-primary" id="createCommandActivityBtn" style="margin-top:16px;">Create this activity (as a draft)</button>';
+
+    document.getElementById("createCommandActivityBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("createCommandActivityBtn");
+      btn.disabled = true; btn.textContent = "Creating…";
+      try {
+        let levelId = "";
+        if (parsed.meta.level) {
+          const snap = await db.collection("levels").get();
+          let found = null;
+          snap.forEach((d) => { if ((d.data().title || "").toLowerCase() === parsed.meta.level.toLowerCase()) found = d.id; });
+          if (found) levelId = found;
+          else showToast('No level titled "' + parsed.meta.level + '" was found — saved unattached.', "info");
+        }
+        await db.collection("activities").add({
+          title: parsed.meta.title || "Untitled activity",
+          type: parsed.meta.type,
+          payload: parsed.payload,
+          levelId,
+          order: 0,
+          xpReward: parsed.meta.xp,
+          required: true,
+          published: false,
+        });
+        showToast("Activity created as a draft.");
+        document.getElementById("activityCommandInputArea").value = "";
+        previewHost.innerHTML = ""; alertHost.innerHTML = "";
+      } catch (err) {
+        showToast(describeFirebaseError(err));
+        btn.disabled = false; btn.textContent = "Create this activity (as a draft)";
+      }
+    });
+  };
+}
+
 
 async function openLessonEditor(lesson) {
   const isNew = !lesson;
@@ -1914,13 +2391,37 @@ document.getElementById("savePlacementBtn").addEventListener("click", async () =
    press Save on themselves -- same human-in-the-loop guarantee as
    the rest of this app.
    --------------------------------------------------------- */
-const AI_ACTIVITY_TYPES = ["quiz", "match", "fill", "memoryFlip", "wordScramble", "speedRound", "picturePop"];
+const AI_ACTIVITY_TYPES = ["quiz", "match", "fill", "memoryFlip", "wordScramble", "speedRound", "picturePop",
+  "oddOneOut", "sentenceOrder", "listenType", "categorize"];
+
+// Groq hosts several different open models, each with a different
+// speed/quality/context tradeoff. Rather than hardcoding one, the admin
+// picks from a dropdown -- the choice is remembered in this browser via
+// localStorage so it doesn't reset every time the panel reopens.
+const GROQ_MODELS = [
+  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (best quality, default)" },
+  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B (fastest)" },
+  { id: "llama3-70b-8192", label: "Llama 3 70B" },
+  { id: "gemma2-9b-it", label: "Gemma 2 9B" },
+];
+const GROQ_DEFAULT_MODEL = GROQ_MODELS[0].id;
+function getSelectedGroqModel() {
+  return localStorage.getItem("jessedu_groq_model") || GROQ_DEFAULT_MODEL;
+}
+function setSelectedGroqModel(id) {
+  localStorage.setItem("jessedu_groq_model", id);
+}
 
 const AI_SYSTEM_PROMPT =
   "You are the curriculum-writing assistant inside JessEDU, the free English-learning site run by " +
   "the Javanese English Speaking Society (JESS), a youth-led nonprofit teaching English to students " +
   "in Indonesia, many of them complete beginners, some of them children in orphanages with limited or " +
   "no other access to English education.\n\n" +
+  "Write like an encouraging peer tutor, not a textbook and not a corporate e-learning platform. Warm, " +
+  "patient, plain language, short sentences. Never condescending. No jargon without explaining it in " +
+  "the same breath. Favor concrete, everyday, locally relevant examples (food, family, school, the " +
+  "market) over generic or Western-centric ones. Wrong quiz options should be plausible, not absurd. " +
+  "Never use an em dash (—) anywhere in any text you write; use a period or comma instead.\n\n" +
   "You help staff draft learning activities. When asked to create one, reply with a short, friendly " +
   "sentence describing what you made, then a single fenced JSON code block with this exact shape:\n\n" +
   "{\"type\": one of " + JSON.stringify(AI_ACTIVITY_TYPES) + ", \"title\": \"a short activity title\", " +
@@ -1932,9 +2433,13 @@ const AI_SYSTEM_PROMPT =
   "memoryFlip: {\"pairs\":[{\"a\":\"...\",\"b\":\"...\"}]} (a/b are the two matching cards, e.g. English word + Indonesian translation)\n" +
   "wordScramble: {\"words\":[{\"word\":\"lowercase, no spaces\",\"hint\":\"optional short hint\"}]}\n" +
   "speedRound: {\"statements\":[{\"text\":\"...\",\"isTrue\":true}],\"seconds\":30}\n" +
-  "picturePop: {\"rounds\":[{\"word\":\"...\",\"correctEmoji\":\"single emoji\",\"decoyEmojis\":[\"emoji\",\"emoji\",\"emoji\"]}]}\n\n" +
-  "Rules: never use em dashes anywhere in any text you write. Keep language simple, beginner-friendly, " +
-  "and appropriate for children. Do not invent a type outside the list above. Only include the JSON block " +
+  "picturePop: {\"rounds\":[{\"word\":\"...\",\"correctEmoji\":\"single emoji\",\"decoyEmojis\":[\"emoji\",\"emoji\",\"emoji\"]}]}\n" +
+  "oddOneOut: {\"rounds\":[{\"words\":[\"...\",\"...\",\"...\",\"...\"],\"oddIndex\":0}]} (3 to 5 words per round, oddIndex points at the one that doesn't belong)\n" +
+  "sentenceOrder: {\"sentences\":[{\"words\":[\"I\",\"like\",\"apples\"],\"hint\":\"\"}]} (words in their CORRECT order; the app shuffles them for the learner)\n" +
+  "listenType: {\"items\":[{\"text\":\"...\",\"lang\":\"en\"}]} (lang is \"en\" or \"id\")\n" +
+  "categorize: {\"categoryA\":\"...\",\"categoryB\":\"...\",\"items\":[{\"word\":\"...\",\"category\":\"A\"}]}\n\n" +
+  "Rules: keep language simple, beginner-friendly, and appropriate for children unless told otherwise. " +
+  "Do not invent a type outside the list above. Only include the JSON block " +
   "when the person is actually asking you to create or revise an activity; for general questions or small " +
   "talk, just reply normally with no JSON block at all.";
 
@@ -1982,19 +2487,17 @@ function stripAiDraftFence(text) {
   return text.replace(/```json\s*[\s\S]*?```/i, "").trim();
 }
 
-async function callOpenRouter(messages) {
-  const key = window.OPENROUTER_API_KEY;
-  if (!key) throw new Error("No OpenRouter API key is configured (firebase-config.js).");
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+async function callGroq(messages, model) {
+  const key = window.GROQ_API_KEY;
+  if (!key) throw new Error("No Groq API key is configured (firebase-config.js).");
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Authorization": "Bearer " + key,
-      "Content-Type": "application/json",
-      "HTTP-Referer": location.origin,
-      "X-Title": "JessEDU Curriculum Assistant"
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "openai/gpt-4o-mini",
+      model: model || GROQ_DEFAULT_MODEL,
       messages,
       temperature: 0.7,
       max_tokens: 1400
@@ -2002,7 +2505,7 @@ async function callOpenRouter(messages) {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error("OpenRouter request failed (" + res.status + "). " + detail.slice(0, 300));
+    throw new Error("Groq request failed (" + res.status + "). " + detail.slice(0, 300));
   }
   const data = await res.json();
   const text = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
@@ -2015,6 +2518,12 @@ function initAiAssistant() {
   if (__aiInited) return;
   __aiInited = true;
   aiMessages = [{ role: "system", content: AI_SYSTEM_PROMPT }];
+
+  const modelSelect = document.getElementById("aiModelSelect");
+  modelSelect.innerHTML = GROQ_MODELS.map((m) => '<option value="' + m.id + '">' + escapeHtml(m.label) + '</option>').join("");
+  modelSelect.value = getSelectedGroqModel();
+  modelSelect.addEventListener("change", () => setSelectedGroqModel(modelSelect.value));
+
   renderAiMessage("assistant",
     "Tell me what you would like to teach. For example: \"a beginner quiz about fruit, five questions\" or \"a word match for family members, English to Indonesian\".");
 
@@ -2042,7 +2551,7 @@ function initAiAssistant() {
     }
 
     try {
-      const reply = await callOpenRouter(outgoing);
+      const reply = await callGroq(outgoing, getSelectedGroqModel());
       aiMessages.push({ role: "assistant", content: reply });
       const draft = extractAiDraft(reply);
       renderAiMessage("assistant", stripAiDraftFence(reply) || "Here is a draft:", draft);

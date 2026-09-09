@@ -37,7 +37,7 @@ window.ADMIN_PASSWORD = "JESSPassword";
 // here is visible via view-source to anyone who opens the admin page.
 // Placed here at the site owner's explicit instruction for a closed,
 // low-usage testing deployment. Revoke and replace before any wider use.
-window.OPENROUTER_API_KEY = "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";
+window.GROQ_API_KEY = "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";
 
 // This Firestore database is shared with the separate JESSPORTAL
 // (NGO info) site. Every analytics/presence doc JESSEDU writes is

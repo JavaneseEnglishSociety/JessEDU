@@ -557,8 +557,12 @@ const ACTIVITY_TYPE_META = {
   wordScramble: { label: "Word scramble", color: "var(--mango)", icon: "🔀" },
   speedRound: { label: "Speed round", color: "var(--coral)", icon: "⚡" },
   picturePop: { label: "Picture pop", color: "var(--leaf)", icon: "🎯" },
+  oddOneOut: { label: "Odd one out", color: "var(--coral)", icon: "🔍" },
+  sentenceOrder: { label: "Sentence order", color: "var(--sky)", icon: "↕️" },
+  listenType: { label: "Listen and type", color: "var(--mango)", icon: "🎙️" },
+  categorize: { label: "Categorize", color: "var(--leaf)", icon: "🗃️" },
 };
-const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20, memoryFlip: 20, wordScramble: 15, speedRound: 25, picturePop: 15 };
+const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20, memoryFlip: 20, wordScramble: 15, speedRound: 25, picturePop: 15, oddOneOut: 15, sentenceOrder: 20, listenType: 20, categorize: 15 };
 
 
 function renderLevelPath() {
@@ -1208,11 +1212,39 @@ function detectSentenceLang(sentence) {
 
 // Splits on sentence-ending punctuation and blank lines, keeping each
 // piece short enough to tag with its own language and voice.
-function splitIntoSentences(text) {
-  return text
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+// Breaks lesson text into small speakable chunks with an explicit
+// pause AFTER each one: short after a comma, a bit longer after a full
+// sentence, longer still between paragraphs. speechSynthesis has no
+// SSML/<break> support, so the only way to get a real, controllable
+// silence between chunks (rather than the browser's own tiny fixed gap
+// between queued utterances) is to speak one chunk at a time and wait
+// out an explicit setTimeout before starting the next.
+const TTS_PAUSE_COMMA_MS = 140;
+const TTS_PAUSE_SENTENCE_MS = 320;
+const TTS_PAUSE_PARAGRAPH_MS = 600;
+
+function splitIntoSpeechChunks(text) {
+  const paragraphs = String(text).split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const chunks = [];
+  paragraphs.forEach((para, pi) => {
+    const sentences = para.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+    sentences.forEach((sentence, si) => {
+      // Comma stays attached to the clause before it (reads naturally,
+      // "Hello," not "Hello" then "," as its own utterance).
+      const clauses = sentence.split(/(?<=,)\s+/).map((c) => c.trim()).filter(Boolean);
+      clauses.forEach((clause, ci) => {
+        const isLastClause = ci === clauses.length - 1;
+        const isLastSentence = si === sentences.length - 1;
+        const isLastParagraph = pi === paragraphs.length - 1;
+        let pauseAfter = 0;
+        if (!isLastClause) pauseAfter = TTS_PAUSE_COMMA_MS;
+        else if (!isLastSentence) pauseAfter = TTS_PAUSE_SENTENCE_MS;
+        else if (!isLastParagraph) pauseAfter = TTS_PAUSE_PARAGRAPH_MS;
+        chunks.push({ text: clause, pauseAfter });
+      });
+    });
+  });
+  return chunks;
 }
 
 let __ttsVoices = [];
@@ -1236,23 +1268,50 @@ function pickVoiceFor(langCode) {
       || null;
 }
 
-// Speaks a full lesson sentence-by-sentence, switching voice and BCP-47
-// language per sentence based on detected language. speechSynthesis
-// queues utterances automatically in call order, so no manual chaining
-// is needed -- only the per-utterance lang/voice differs.
+// Speaks a full lesson chunk by chunk, in order, switching voice and
+// BCP-47 language per chunk based on detected language, and waiting out
+// each chunk's pause before starting the next (see
+// splitIntoSpeechChunks above for why this can't just be a forEach of
+// .speak() calls the way it used to be). __ttsStopRequested lets the
+// Stop button actually interrupt this chain -- speechSynthesis.cancel()
+// alone only stops what's currently playing, it does nothing about a
+// setTimeout that's already scheduled to start the NEXT chunk, so
+// without this flag "Stop" would pause for a moment and then keep
+// talking anyway.
+let __ttsStopRequested = false;
+let __ttsSequenceRunning = false;
+function stopSpeaking() {
+  __ttsStopRequested = true;
+  __ttsSequenceRunning = false;
+  if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+}
+
 function speakBilingual(text, onEnd) {
-  const sentences = splitIntoSentences(text);
-  if (!sentences.length) { if (onEnd) onEnd(); return; }
-  sentences.forEach((sentence, i) => {
-    const lang = detectSentenceLang(sentence);
-    const utter = new SpeechSynthesisUtterance(sentence);
+  __ttsStopRequested = false;
+  const chunks = splitIntoSpeechChunks(text);
+  if (!chunks.length) { if (onEnd) onEnd(); return; }
+  let idx = 0;
+  function playNext() {
+    if (__ttsStopRequested) return;
+    if (idx >= chunks.length) { if (onEnd) onEnd(); return; }
+    const chunk = chunks[idx];
+    const lang = detectSentenceLang(chunk.text);
+    const utter = new SpeechSynthesisUtterance(chunk.text);
     utter.lang = lang === "id" ? "id-ID" : "en-US";
     const voice = pickVoiceFor(utter.lang);
     if (voice) utter.voice = voice;
     utter.rate = 0.92;
-    if (i === sentences.length - 1 && onEnd) utter.onend = onEnd;
+    const advance = () => {
+      if (__ttsStopRequested) return;
+      idx++;
+      if (chunk.pauseAfter > 0) setTimeout(playNext, chunk.pauseAfter);
+      else playNext();
+    };
+    utter.onend = advance;
+    utter.onerror = advance; // one bad chunk shouldn't silently kill the rest of the lesson
     window.speechSynthesis.speak(utter);
-  });
+  }
+  playNext();
 }
 
 // Text-to-speech ("Listen") and a plain-text download ("Save for
@@ -1486,13 +1545,21 @@ function wireLessonFreeTools(lesson) {
   const listenBtn = document.getElementById("lessonListenBtn");
   if (listenBtn && "speechSynthesis" in window) {
     listenBtn.addEventListener("click", () => {
-      if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
+      // speechSynthesis.speaking is false during the deliberate pauses
+      // BETWEEN chunks (nothing is actively vocalizing right then), so
+      // checking it here would miss a click during one of those gaps
+      // and start a second overlapping playback instead of stopping the
+      // first. __ttsStopRequested tracks the real "is a sequence
+      // running" state regardless of whether something is mid-utterance
+      // or mid-pause.
+      if (!__ttsStopRequested && (window.speechSynthesis.speaking || __ttsSequenceRunning)) {
+        stopSpeaking();
         listenBtn.textContent = "🔊 Listen";
         return;
       }
       listenBtn.textContent = "⏸ Stop";
-      speakBilingual(lessonPlainText(lesson), () => { listenBtn.textContent = "🔊 Listen"; });
+      __ttsSequenceRunning = true;
+      speakBilingual(lessonPlainText(lesson), () => { listenBtn.textContent = "🔊 Listen"; __ttsSequenceRunning = false; });
     });
   } else if (listenBtn) {
     listenBtn.disabled = true;
@@ -1607,6 +1674,10 @@ function launchActivityRunner(activity) {
         else if (activity.type === "wordScramble") runWordScrambleActivity(activity);
         else if (activity.type === "speedRound") runSpeedRoundActivity(activity);
         else if (activity.type === "picturePop") runPicturePopActivity(activity);
+        else if (activity.type === "oddOneOut") runOddOneOutActivity(activity);
+        else if (activity.type === "sentenceOrder") runSentenceOrderActivity(activity);
+        else if (activity.type === "listenType") runListenTypeActivity(activity);
+        else if (activity.type === "categorize") runCategorizeActivity(activity);
       });
     }
   );
@@ -1674,6 +1745,10 @@ function renderActivityResult(activity, correctCount, total) {
       else if (activity.type === "wordScramble") runWordScrambleActivity(activity);
       else if (activity.type === "speedRound") runSpeedRoundActivity(activity);
       else if (activity.type === "picturePop") runPicturePopActivity(activity);
+      else if (activity.type === "oddOneOut") runOddOneOutActivity(activity);
+      else if (activity.type === "sentenceOrder") runSentenceOrderActivity(activity);
+      else if (activity.type === "listenType") runListenTypeActivity(activity);
+      else if (activity.type === "categorize") runCategorizeActivity(activity);
     });
     document.getElementById("resultCloseBtn").addEventListener("click", closeModal);
   }
@@ -2300,6 +2375,226 @@ function runPicturePopActivity(activity) {
   setupRound();
 }
 
+/* ---- Odd One Out: tap the word that doesn't belong ---------------------
+   Payload: { rounds: [{ words: ["apple","banana","car","grape"], oddIndex: 2 }] }
+   Simple, but genuinely different from the multiple-choice quiz: there's
+   no "question text" framing an answer, the learner has to recognise
+   the category from the words themselves. */
+function runOddOneOutActivity(activity) {
+  const rounds = (activity.payload && activity.payload.rounds) || [];
+  let idx = 0, correct = 0;
+
+  function setupRound() {
+    const r = rounds[idx];
+    openModal(
+      '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Odd one out (' + (idx + 1) + '/' + rounds.length + ')</p>' +
+      '<h3 style="margin-bottom:16px;">Which one doesn\'t belong?</h3>' +
+      '<div class="opt-list" id="oddOneOutList">' +
+      r.words.map((w, i) => '<button type="button" class="opt-item" data-i="' + i + '">' + escapeHtml(w) + '</button>').join("") +
+      '</div>',
+      () => {
+        document.getElementById("oddOneOutList").addEventListener("click", (e) => {
+          const btn = e.target.closest(".opt-item");
+          if (!btn) return;
+          const picked = parseInt(btn.getAttribute("data-i"), 10);
+          const buttons = document.querySelectorAll("#oddOneOutList .opt-item");
+          buttons.forEach((b) => (b.style.pointerEvents = "none"));
+          if (picked === r.oddIndex) {
+            correct++;
+            btn.classList.add("correct");
+          } else {
+            btn.classList.add("incorrect");
+            buttons[r.oddIndex].classList.add("correct");
+          }
+          setTimeout(() => {
+            idx++;
+            if (idx < rounds.length) setupRound();
+            else renderActivityResult(activity, correct, rounds.length);
+          }, 700);
+        });
+      }
+    );
+  }
+  setupRound();
+}
+
+/* ---- Sentence Order: tap scrambled WORDS into the right order ---------
+   Payload: { sentences: [{ words: ["I","like","apples"], hint: "" }] }
+   Reuses the exact tile-and-slot mechanic from Word Scramble, just
+   operating on whole words forming a sentence instead of letters
+   forming one word -- a genuinely different skill (word order /
+   sentence structure) built on UI the learner already knows. */
+function runSentenceOrderActivity(activity) {
+  const sentences = (activity.payload && activity.payload.sentences) || [];
+  let idx = 0, correct = 0;
+
+  function setupSentence() {
+    const s = sentences[idx];
+    const correctWords = s.words;
+    let shuffled = shuffle(correctWords.slice());
+    let attempts = 0;
+    while (shuffled.join(" ") === correctWords.join(" ") && attempts < 8 && correctWords.length > 1) {
+      shuffled = shuffle(correctWords.slice());
+      attempts++;
+    }
+    const placed = new Array(correctWords.length).fill(null);
+
+    openModal(
+      '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Sentence order (' + (idx + 1) + '/' + sentences.length + ')</p>' +
+      (s.hint ? '<p style="color:var(--ink-soft); margin-bottom:14px;">Hint: ' + escapeHtml(s.hint) + '</p>' : '') +
+      '<div class="scramble-answer" id="sentOrderAnswer"></div>' +
+      '<div class="scramble-tiles" id="sentOrderTiles"></div>' +
+      '<div style="display:flex; gap:10px; margin-top:16px;">' +
+      '<button class="btn btn-secondary" id="sentOrderClearBtn">Clear</button>' +
+      '<button class="btn btn-primary btn-block" id="sentOrderCheckBtn">Check sentence</button>' +
+      '</div>',
+      () => {
+        const answerHost = document.getElementById("sentOrderAnswer");
+        const tilesHost = document.getElementById("sentOrderTiles");
+        function draw() {
+          answerHost.innerHTML = placed.map((si, slot) =>
+            '<button type="button" class="scramble-slot ' + (si === null ? "empty" : "filled") + '" data-slot="' + slot + '" style="min-width:60px; width:auto; padding:0 10px;">' +
+            (si === null ? "" : escapeHtml(shuffled[si])) + '</button>'
+          ).join("");
+          tilesHost.innerHTML = shuffled.map((w, si) =>
+            '<button type="button" class="scramble-tile" data-si="' + si + '" style="width:auto; min-width:44px; padding:0 12px; text-transform:none;" ' +
+            (placed.includes(si) ? "disabled" : "") + '>' + escapeHtml(w) + '</button>'
+          ).join("");
+        }
+        draw();
+        tilesHost.addEventListener("click", (e) => {
+          const btn = e.target.closest(".scramble-tile");
+          if (!btn || btn.disabled) return;
+          const si = parseInt(btn.getAttribute("data-si"), 10);
+          const emptySlot = placed.indexOf(null);
+          if (emptySlot === -1) return;
+          placed[emptySlot] = si;
+          draw();
+        });
+        answerHost.addEventListener("click", (e) => {
+          const btn = e.target.closest(".scramble-slot");
+          if (!btn || btn.classList.contains("empty")) return;
+          const slot = parseInt(btn.getAttribute("data-slot"), 10);
+          placed[slot] = null;
+          draw();
+        });
+        document.getElementById("sentOrderClearBtn").addEventListener("click", () => { placed.fill(null); draw(); });
+        document.getElementById("sentOrderCheckBtn").addEventListener("click", () => {
+          if (placed.includes(null)) { showToast("Place every word first.", "info"); return; }
+          const attempt = placed.map((si) => shuffled[si]).join(" ").toLowerCase();
+          if (attempt === correctWords.join(" ").toLowerCase()) correct++;
+          idx++;
+          if (idx < sentences.length) setupSentence();
+          else renderActivityResult(activity, correct, sentences.length);
+        });
+      }
+    );
+  }
+  setupSentence();
+}
+
+/* ---- Listen and Type: hear it, then type what you heard ---------------
+   Payload: { items: [{ text: "apple", lang: "en" }] }
+   Uses the site's own free TTS (speakBilingual) rather than needing any
+   pre-recorded audio file -- genuinely tests listening comprehension +
+   spelling together, which none of the other games do. */
+function runListenTypeActivity(activity) {
+  const items = (activity.payload && activity.payload.items) || [];
+  let idx = 0, correct = 0;
+
+  function setupItem() {
+    const item = items[idx];
+    openModal(
+      '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Listen and type (' + (idx + 1) + '/' + items.length + ')</p>' +
+      '<h3 style="margin-bottom:16px;">Listen, then type what you hear</h3>' +
+      '<div style="text-align:center; margin-bottom:18px;">' +
+      '<button type="button" class="btn btn-secondary" id="listenTypePlayBtn">🔊 Play</button>' +
+      '</div>' +
+      '<input type="text" id="listenTypeInput" placeholder="Type what you heard" autocomplete="off" ' +
+      'style="width:100%; padding:12px 14px; border:1.5px solid var(--rule-dark); border-radius:var(--r); font-size:1rem; margin-bottom:16px;">' +
+      '<button class="btn btn-primary btn-block" id="listenTypeCheckBtn">Check</button>',
+      () => {
+        const play = () => {
+          const utter = new SpeechSynthesisUtterance(item.text);
+          utter.lang = (item.lang === "id" ? "id-ID" : "en-US");
+          const voice = pickVoiceFor(utter.lang);
+          if (voice) utter.voice = voice;
+          utter.rate = 0.85;
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utter);
+        };
+        document.getElementById("listenTypePlayBtn").addEventListener("click", play);
+        if ("speechSynthesis" in window) setTimeout(play, 300);
+        document.getElementById("listenTypeCheckBtn").addEventListener("click", () => {
+          const typed = document.getElementById("listenTypeInput").value.trim().toLowerCase();
+          if (typed === item.text.trim().toLowerCase()) correct++;
+          idx++;
+          if (idx < items.length) setupItem();
+          else renderActivityResult(activity, correct, items.length);
+        });
+      }
+    );
+  }
+  setupItem();
+}
+
+/* ---- Categorize: sort words into one of two buckets --------------------
+   Payload: { categoryA: "Animals", categoryB: "Fruits",
+              items: [{ word: "Cat", category: "A" }, ...] }
+   Tap a word, then tap the bucket it belongs in. Tests classification/
+   vocabulary grouping, a different skill from matching pairs 1-to-1. */
+function runCategorizeActivity(activity) {
+  const payload = activity.payload || {};
+  const items = shuffle((payload.items || []).slice());
+  let selectedIdx = null;
+  let correctCount = 0;
+  const results = new Array(items.length).fill(null); // null = not sorted yet
+
+  function render() {
+    const host = document.querySelector("#modalHost .modal-panel");
+    if (!host) return;
+    const remaining = items.map((it, i) => results[i] === null ? { it, i } : null).filter(Boolean);
+    const wordsHtml = remaining.length
+      ? remaining.map(({ it, i }) => '<button type="button" class="activity-chip' + (selectedIdx === i ? " done" : "") + '" data-word-i="' + i + '">' + escapeHtml(it.word) + '</button>').join("")
+      : '<p style="color:var(--ink-soft);">All sorted!</p>';
+    host.querySelector("#categorizeWords").innerHTML = wordsHtml;
+    host.querySelectorAll("[data-word-i]").forEach((btn) =>
+      btn.addEventListener("click", () => { selectedIdx = parseInt(btn.getAttribute("data-word-i"), 10); render(); })
+    );
+    if (remaining.length === 0) {
+      const doneBtn = host.querySelector("#categorizeDoneBtn");
+      if (doneBtn) doneBtn.style.display = "block";
+    }
+  }
+
+  openModal(
+    '<p class="eyebrow">' + escapeHtml(activity.title) + ' · Categorize</p>' +
+    '<h3 style="margin-bottom:14px;">Tap a word, then tap where it belongs</h3>' +
+    '<div id="categorizeWords" class="activity-chip-row" style="margin-bottom:20px;"></div>' +
+    '<div style="display:flex; gap:12px;">' +
+    '<button type="button" class="btn btn-secondary btn-block" id="categorizeBucketA">' + escapeHtml(payload.categoryA || "Category A") + '</button>' +
+    '<button type="button" class="btn btn-secondary btn-block" id="categorizeBucketB">' + escapeHtml(payload.categoryB || "Category B") + '</button>' +
+    '</div>' +
+    '<button class="btn btn-primary btn-block" id="categorizeDoneBtn" style="margin-top:18px; display:none;">See results</button>',
+    () => {
+      render();
+      function sortInto(bucket) {
+        if (selectedIdx === null) { showToast("Tap a word first.", "info"); return; }
+        const item = items[selectedIdx];
+        if (item.category === bucket) correctCount++;
+        results[selectedIdx] = bucket;
+        selectedIdx = null;
+        render();
+      }
+      document.getElementById("categorizeBucketA").addEventListener("click", () => sortInto("A"));
+      document.getElementById("categorizeBucketB").addEventListener("click", () => sortInto("B"));
+      document.getElementById("categorizeDoneBtn").addEventListener("click", () => {
+        renderActivityResult(activity, correctCount, items.length);
+      });
+    }
+  );
+}
+
 /* ---------------------------------------------------------
    11. Placement quiz
    --------------------------------------------------------- */
@@ -2556,3 +2851,4 @@ async function checkPreviewParams() {
     if (previewActivityId || previewLessonId) showToast("Couldn't load preview: " + describeFirebaseError(err), "error");
   }
 }
+
