@@ -2014,17 +2014,48 @@ function initActivityCommandPanel() {
         let levelId = "";
         if (parsed.meta.level) {
           const snap = await db.collection("levels").get();
-          let found = null;
-          snap.forEach((d) => { if ((d.data().title || "").toLowerCase() === parsed.meta.level.toLowerCase()) found = d.id; });
-          if (found) levelId = found;
-          else showToast('No level titled "' + parsed.meta.level + '" was found — saved unattached.', "info");
+          const allLevels = [];
+          snap.forEach((d) => allLevels.push({ id: d.id, title: d.data().title || "" }));
+          const wanted = parsed.meta.level.toLowerCase().trim();
+          // An exact match first, but a level whose real title has
+          // extra decoration around the name typed (e.g. the actual
+          // title is "Beginner [Level 1]" but "Beginner" was typed)
+          // would silently fail an exact match and the activity would
+          // still get created, just invisibly unattached -- which
+          // looks exactly like "nothing happened" from the admin
+          // side. A "starts with" / "contains" fallback catches that
+          // common case; if even that fails, the actual list of level
+          // titles is shown so the mismatch is obvious immediately
+          // instead of a vague "not found".
+          let match = allLevels.find((l) => l.title.toLowerCase().trim() === wanted);
+          if (!match) match = allLevels.find((l) => l.title.toLowerCase().includes(wanted) || wanted.includes(l.title.toLowerCase().trim()));
+          if (match) {
+            levelId = match.id;
+            if (match.title.toLowerCase().trim() !== wanted) {
+              showToast('Matched "' + parsed.meta.level + '" to the existing level "' + match.title + '".', "info");
+            }
+          } else {
+            const available = allLevels.map((l) => '"' + l.title + '"').join(", ") || "(no levels exist yet)";
+            showToast('No level matching "' + parsed.meta.level + '" was found — saved unattached. Existing levels: ' + available, "error");
+          }
         }
+        // Every activity created here was hardcoded to order: 0 --
+        // meaning any two activities made through this panel for the
+        // SAME level tied at the same order, which breaks the
+        // "complete the previous one to unlock this one" sequencing
+        // that depends on a clear, unique order per level. Now it
+        // looks up the highest existing order within that same level
+        // (unattached activities, order among themselves) and takes
+        // the next number, the same way new lessons already do.
+        const existingSnap = await db.collection("activities").where("levelId", "==", levelId).get();
+        let maxOrder = 0;
+        existingSnap.forEach((d) => { maxOrder = Math.max(maxOrder, d.data().order || 0); });
         await db.collection("activities").add({
           title: parsed.meta.title || "Untitled activity",
           type: parsed.meta.type,
           payload: parsed.payload,
           levelId,
-          order: 0,
+          order: maxOrder + 1,
           xpReward: parsed.meta.xp,
           required: true,
           published: false,
