@@ -1002,6 +1002,17 @@ async function markLessonComplete(lesson, scoreFraction) {
     await refreshProfileCache();
     updateSidebarStats();
     renderLessonGrid();
+    // This was the actual bug: markLessonComplete only ever refreshed the
+    // standalone Library view. A "lesson" TYPE ACTIVITY (created via the
+    // Command Panel's TYPE: lesson, living inside a level's path) shares
+    // this exact same completion function, but its chip lives in the
+    // level path, not the Library -- so finishing it correctly recorded
+    // as done, while the level path's chips kept showing the stale
+    // pre-completion state, leaving the next item looking locked (or
+    // otherwise wrong) even though the data underneath was already
+    // correct. Safe to call unconditionally: for a real Library lesson
+    // this just re-renders a level path that isn't currently relevant.
+    renderLevelPath();
     refreshProgressViewsIfVisible();
     closeModal();
   } catch (err) {
@@ -2851,4 +2862,3 @@ async function checkPreviewParams() {
     if (previewActivityId || previewLessonId) showToast("Couldn't load preview: " + describeFirebaseError(err), "error");
   }
 }
-
