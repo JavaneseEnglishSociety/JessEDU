@@ -368,30 +368,11 @@ table.data-table td{ padding:11px 12px; border-bottom:1px solid var(--rule); fon
 .lesson-card:hover,.media-card:hover{ border-color:var(--green); }
 .lesson-card-tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
 
-/* Lesson library: same winding top-to-bottom path language as the
-   level path, instead of a plain grid of tiles -- browsing/searching
-   still work exactly as before, this only changes the layout. */
-.lesson-path{ display:flex; flex-direction:column; gap:26px; padding:8px 0; }
-.lesson-path-row{ display:flex; gap:18px; align-items:flex-start; }
-.lesson-path-row:nth-child(6n+1){ margin-left: 0; }
-.lesson-path-row:nth-child(6n+2){ margin-left: 30px; }
-.lesson-path-row:nth-child(6n+3){ margin-left: 12px; }
-.lesson-path-row:nth-child(6n+4){ margin-left: 40px; }
-.lesson-path-row:nth-child(6n+5){ margin-left: 8px; }
-.lesson-path-row:nth-child(6n+6){ margin-left: 22px; }
-.lesson-path-node{
-  flex-shrink:0; width:40px; height:40px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  font-family:var(--serif); font-weight:600; font-size:0.95rem;
-  background:var(--paper-2); color:var(--ink-3); border:1px solid var(--rule-dark);
-}
-.lesson-path-node.complete{ background:var(--green); color:#fff; border-color:var(--green); }
-.lesson-path-row .lesson-card{ flex:1; min-width:0; }
-@media (max-width: 560px){
-  .lesson-path-row:nth-child(6n+1),.lesson-path-row:nth-child(6n+2),
-  .lesson-path-row:nth-child(6n+3),.lesson-path-row:nth-child(6n+4),
-  .lesson-path-row:nth-child(6n+5),.lesson-path-row:nth-child(6n+6){ margin-left: 0; }
-}
+/* Lesson library: a plain grid, deliberately simple and distinct from
+   the winding path used for level-tied content below -- this is a
+   free-browse reference shelf, not a guided progression, and should
+   read that way at a glance. */
+.lesson-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:16px; }
 .lesson-tag{ font-size:.77rem; padding:2px 9px; border-radius:var(--r-sm); background:var(--paper-2); color:var(--ink-2); }
 .media-cat-label{ font-size:.78rem; color:var(--ink-3); }
 .media-toolbar{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
@@ -649,9 +630,52 @@ table.data-table td{ padding:11px 12px; border-bottom:1px solid var(--rule); fon
 .shop-card-foot{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .shop-cost{ font-family:var(--serif); font-weight:700; color:var(--brass); font-size:1.05rem; }
 
-/* Locked lessons in the library, matching the same treatment as locked
-   levels: greyed content, a lock icon on the node, and clicking still
-   responds (with a toast explaining why) rather than doing nothing. */
-.lesson-path-node.locked{ background:var(--paper-2); color:var(--ink-3); border-color:var(--rule-dark); font-size:1rem; }
-.lesson-card.locked{ opacity:0.6; cursor:pointer; }
-.lesson-card.locked .lesson-meta{ color:var(--ink-3); }
+
+/* ---------- Activity path: genuine Duolingo-style bubble path -----------
+   This is specifically for the sequence of activities INSIDE one level --
+   distinct from the level list above it (cards in a gentler winding
+   list) and the standalone Library (a plain grid). Circular icon nodes,
+   alternating left-right, one glowing "current" bubble at a time. */
+.activity-path{ display:flex; flex-direction:column; gap:6px; margin-top:14px; padding-left:4px; }
+.activity-path-row{ display:flex; align-items:center; gap:14px; }
+.activity-path-row:nth-child(5n+1){ margin-left: 0; }
+.activity-path-row:nth-child(5n+2){ margin-left: 34px; }
+.activity-path-row:nth-child(5n+3){ margin-left: 14px; }
+.activity-path-row:nth-child(5n+4){ margin-left: 44px; }
+.activity-path-row:nth-child(5n+5){ margin-left: 6px; }
+
+.activity-node{
+  --node-color: var(--brass);
+  flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.4rem; line-height: 1; cursor: pointer;
+  background: var(--node-color); color: #fff;
+  border: none; box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.activity-node:hover{ transform: translateY(-2px); }
+.activity-node:active{ transform: translateY(2px); box-shadow: 0 1px 0 color-mix(in srgb, var(--node-color) 70%, black); }
+
+.activity-node.done{
+  background: var(--green); box-shadow: 0 4px 0 #1f6b46;
+}
+.activity-node.locked{
+  background: var(--paper-2); color: var(--ink-3); cursor: pointer;
+  box-shadow: 0 4px 0 var(--rule-dark); font-size: 1.1rem;
+}
+.activity-node.locked:hover{ transform: none; }
+
+/* The one bubble that's next up gets a soft pulsing ring, same idea as
+   Duolingo's glow on the current lesson -- draws the eye to exactly
+   where to tap next without needing any extra label. */
+.activity-node.current{
+  animation: activity-node-pulse 1.8s ease-in-out infinite;
+}
+@keyframes activity-node-pulse{
+  0%, 100% { box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black), 0 0 0 0 color-mix(in srgb, var(--node-color) 45%, transparent); }
+  50% { box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black), 0 0 0 8px color-mix(in srgb, var(--node-color) 0%, transparent); }
+}
+
+.activity-node-label{ font-size: 0.92rem; color: var(--ink-2); }
+.activity-node.locked ~ .activity-node-label,
+.activity-path-row:has(.activity-node.locked) .activity-node-label{ color: var(--ink-3); }

@@ -644,27 +644,42 @@ function renderLevelPath() {
       (acts.length ? '<p style="margin-top:4px;">' + doneCount + "/" + acts.length + " activities</p>" : "") + '</div>';
 
     if (state !== "locked" && acts.length > 0) {
-      const chipRow = document.createElement("div");
-      chipRow.className = "activity-chip-row";
+      // A genuine Duolingo-style path: circular icon "bubbles" winding
+      // down the page, distinct from both the level list above (cards
+      // in a straight-ish winding list) and the standalone Library
+      // (a plain grid) -- this is the one place that should actually
+      // look like the reference screenshot, since it's the specific
+      // sequence of things a learner does one at a time inside a level.
+      const pathWrap = document.createElement("div");
+      pathWrap.className = "activity-path";
+      let firstIncompleteFound = false;
       acts.forEach((act, actIndex) => {
-        const chip = document.createElement("button");
         const done = !!completed[act.id];
-        // Within-level sequencing: this was the actual remaining gap.
-        // Levels already locked each other, and the standalone Lesson
-        // Library got the same treatment, but every activity INSIDE one
-        // unlocked level was always equally clickable regardless of
-        // order -- activity 3 was reachable before 1 and 2 were done.
-        // Optional activities don't block the ones after them, since
-        // they're explicitly marked as not required.
         const prevRequired = acts.slice(0, actIndex).filter((a) => a.required !== false);
         const locked = prevRequired.length > 0 && !prevRequired.every((a) => completed[a.id]);
-        chip.className = "activity-chip" + (done ? " done" : "") + (locked ? " locked" : "");
-        chip.type = "button";
+        // "current" is the single next thing to do: the first
+        // not-yet-done, not-locked activity in the list. Only one node
+        // per level ever gets this state, matching Duolingo's one
+        // glowing "next" bubble rather than several available at once.
+        const isCurrent = !done && !locked && !firstIncompleteFound;
+        if (!done && !locked) firstIncompleteFound = true;
+
         const meta = ACTIVITY_TYPE_META[act.type] || { label: act.type, color: "var(--ink-soft)", icon: "•" };
-        const isOptional = act.required === false;
-        chip.innerHTML = (locked ? "🔒 " : ('<span class="type-dot" style="background:' + meta.color + '"></span>')) +
-          (locked ? "" : (meta.icon || "") + " ") + escapeHtml(act.title) + (isOptional ? ' <span style="opacity:0.6; font-size:0.75em;">(optional)</span>' : "") + (done ? " ✓" : "");
-        chip.addEventListener("click", () => {
+        const row = document.createElement("div");
+        row.className = "activity-path-row";
+
+        const node = document.createElement("button");
+        node.type = "button";
+        node.className = "activity-node" + (done ? " done" : locked ? " locked" : isCurrent ? " current" : "");
+        node.style.setProperty("--node-color", meta.color);
+        node.innerHTML = done ? "✓" : locked ? "🔒" : (meta.icon || "•");
+        node.title = act.title;
+
+        const label = document.createElement("span");
+        label.className = "activity-node-label";
+        label.textContent = act.title + (act.required === false ? " (optional)" : "");
+
+        node.addEventListener("click", () => {
           if (locked) {
             const blocker = prevRequired.find((a) => !completed[a.id]);
             showToast("Complete \"" + (blocker ? blocker.title : "the previous activity") + "\" first to unlock this one.", "info");
@@ -672,9 +687,12 @@ function renderLevelPath() {
           }
           openActivityModal(act);
         });
-        chipRow.appendChild(chip);
+
+        row.appendChild(node);
+        row.appendChild(label);
+        pathWrap.appendChild(row);
       });
-      card.appendChild(chipRow);
+      card.appendChild(pathWrap);
     } else if (state !== "locked") {
       const p = document.createElement("p");
       p.style.marginTop = "8px";
@@ -913,19 +931,19 @@ function renderLessonGrid() {
   // Panel) enforces sequential unlocking -- that logic lives in
   // renderLevelPath and is untouched by this.
 
-  // Same winding, top-to-bottom path language as the level path, rather
-  // than a plain multi-column grid -- browsing/searching still works
-  // exactly as before (this is a layout change only), each lesson just
-  // reads as one stop along a path instead of a tile in a grid.
-  host.innerHTML = '<div class="lesson-path">' + items.map((l, i) =>
-    '<div class="lesson-path-row">' +
-    '<div class="lesson-path-node' + (completed[l.id] ? ' complete' : '') + '">' + (completed[l.id] ? '✓' : (i + 1)) + '</div>' +
+  // Deliberately a plain grid, not a winding path -- the "path" look is
+  // now reserved for level-tied content specifically (see the new
+  // renderActivityPath below), so the free-browse Library reads as
+  // clearly different: a reference shelf you scan and pick from, not a
+  // guided progression. This was previously given the same winding
+  // treatment as level content by mistake.
+  host.innerHTML = '<div class="lesson-grid">' + items.map((l) =>
     '<div class="lesson-card" data-open-lesson="' + l.id + '">' +
     '<div class="lesson-card-tags"><span class="lesson-tag">' + escapeHtml(l.category || "") + '</span>' +
     '<span class="lesson-tag diff-' + escapeHtml(l.difficulty || "") + '">' + escapeHtml(l.difficulty || "") + '</span></div>' +
     '<h4>' + escapeHtml(l.title) + (completed[l.id] ? ' <span class="lesson-done-badge">✓</span>' : '') + '</h4>' +
     '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div>' +
-    '</div></div>'
+    '</div>'
   ).join("") + '</div>';
 
   host.querySelectorAll("[data-open-lesson]").forEach(card => card.addEventListener("click", () => {
