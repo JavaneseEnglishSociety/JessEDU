@@ -118,7 +118,7 @@ if (isAdminUnlocked) bootAdminDashboard();
 /* ---------------------------------------------------------
    2. Sidebar panel switching
    --------------------------------------------------------- */
-const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "ai", "lessons", "commands", "placement", "media"];
+const ADMIN_PANELS = ["overview", "learners", "levels", "activities", "ai", "lessons", "commands", "placement", "media", "shop"];
 document.querySelectorAll("[data-admin-panel]").forEach(el => {
   el.addEventListener("click", () => {
     const panel = el.getAttribute("data-admin-panel");
@@ -134,6 +134,7 @@ document.querySelectorAll("[data-admin-panel]").forEach(el => {
     if (panel === "commands") initCommandPanel();
     if (panel === "placement") loadPlacementPanel();
     if (panel === "media") loadMediaPanel();
+    if (panel === "shop") loadShopPanel();
   });
 });
 
@@ -1400,7 +1401,9 @@ Then any number of these blocks, in the order you want them to appear:
 [ACCORDION]
 - First item title: its content
 - Second item title: its content
-  One "- Title: Content" per line. As many lines as you want.
+  One "- Title: Content" per line. As many lines as you want. The leading
+  "-" should always be there, but a line will still work without it as
+  long as it's "Title: Content" with exactly one colon.
 
 [QUIZ]
 Q: The question text
@@ -1411,6 +1414,44 @@ A: Another wrong answer
   Start each question with "Q:". Follow it with exactly four "A:" lines,
   one per option. Put a single * right after the correct one. You can
   repeat Q:/A:/A:/A:/A: as many times as you want for more questions.
+
+Mistakes that break parsing, avoid all of these:
+
+WRONG (header fields on one line):
+TITLE: Colors CATEGORY: Vocabulary DIFFICULTY: Beginner
+RIGHT (each field on its own line):
+TITLE: Colors
+CATEGORY: Vocabulary
+DIFFICULTY: Beginner
+
+WRONG (using * as a bullet point inside [TEXT]/[TIP]/[WARNING] -- this is
+never valid, since * is reserved for **bold** and *italic*, and a list
+written this way will not render as a list at all):
+[TEXT]
+* Sofa = a long chair
+* Table = for eating
+RIGHT (write it as normal sentences, or use [ACCORDION] instead if it is
+genuinely a list of terms and their meanings):
+[TEXT]
+A sofa is a long chair for sitting comfortably. A table is what you eat
+or work at.
+
+WRONG (accordion using * and = instead of - and :):
+[ACCORDION]
+* Sofa = a long chair
+RIGHT (accordion must use a dash and a colon, exactly):
+[ACCORDION]
+- Sofa: a long chair
+
+WRONG (an entire question and its answers squeezed onto one line):
+[QUIZ] Q: Which is red? A: Apple * A: Banana A: Grape A: Lemon
+RIGHT (every Q: and every A: is its own separate line):
+[QUIZ]
+Q: Which is red?
+A: Apple *
+A: Banana
+A: Grape
+A: Lemon
 
 Write the whole lesson now using only this format, nothing else around it.`;
 
@@ -1505,21 +1546,61 @@ function parseBlockTagsFromLines(lines) {
       const html = textToRichHtml(bodyLines.join("\n"));
       blocks.push({ type: tag === "TEXT" ? "richtext" : tag.toLowerCase(), html });
     } else if (tag === "ACCORDION") {
+      // If content was written on the same line as [ACCORDION] itself
+      // (a real mistake, but a very easy one to make), don't silently
+      // drop it -- fold it back in as its own line so it still parses.
+      if (rest) warnings.push('Content was found on the same line as [ACCORDION] and was recovered, but each item should be on its own line below the tag next time.');
+      const accLines = rest ? [rest] : [];
+      while (i < lines.length && !isTagLine(lines[i])) { accLines.push(lines[i]); i++; }
       const items = [];
-      while (i < lines.length && !isTagLine(lines[i])) {
-        const itemLine = lines[i].trim(); i++;
-        if (!itemLine) continue;
-        const m2 = itemLine.match(/^-\s*(.+?):\s*(.+)$/);
-        if (m2) items.push({ title: m2[1].trim(), content: m2[2].trim() });
-        else warnings.push('Could not read an accordion line (expected "- Title: Content"): "' + itemLine.slice(0, 60) + '"');
-      }
+      let missingDash = false;
+      accLines.forEach((rawLine) => {
+        const itemLine = rawLine.trim();
+        if (!itemLine) return;
+        // The leading "-" is now optional: "Title: Content" on its own
+        // is completely unambiguous (a real item always has exactly
+        // one colon separating the two parts), so a line missing just
+        // the dash is safely recoverable rather than a genuine error.
+        const m2 = itemLine.match(/^-?\s*(.+?):\s*(.+)$/);
+        if (m2) {
+          if (!itemLine.startsWith("-")) missingDash = true;
+          items.push({ title: m2[1].trim(), content: m2[2].trim() });
+        } else {
+          warnings.push('Could not read an accordion line (expected "- Title: Content"): "' + itemLine.slice(0, 60) + '"');
+        }
+      });
+      if (missingDash) warnings.push('One or more accordion lines were missing the leading "-" and were recovered anyway, but it should be there next time (e.g. "- Monday: ...").');
       blocks.push({ type: "accordion", items });
     } else if (tag === "QUIZ") {
+      // Same problem as ACCORDION above, but worse: an entire quiz typed
+      // as "[QUIZ] Q: ... A: ... A: ... A: ... A: ..." all on one line
+      // used to be silently discarded completely -- zero questions,
+      // zero warnings, no sign anything was wrong. Splitting the
+      // same-line content apart before every "Q:"/"A:" marker recovers
+      // it instead of losing it.
+      // Any line -- not just the one sharing the [QUIZ] tag itself --
+      // can have an entire question jammed onto it ("Q: ... A: ... A: ...
+      // A: ... A: ..." all as one line). Splitting before every Q:/A:
+      // marker, on every line pulled in, recovers all of these instead
+      // of just the first.
+      function splitQuizJam(line) {
+        return line.split(/\s+(?=Q:|A:)/i).map((p) => p.trim()).filter(Boolean);
+      }
+      const quizLines = [];
+      let sawJam = false;
+      if (rest) { sawJam = true; quizLines.push(...splitQuizJam(rest)); }
+      while (i < lines.length && !isTagLine(lines[i])) {
+        const raw = lines[i]; i++;
+        const split = splitQuizJam(raw);
+        if (split.length > 1) sawJam = true;
+        quizLines.push(...split);
+      }
+      if (sawJam) warnings.push('One or more lines had an entire question jammed together ("Q: ... A: ... A: ..." all on one line) and were recovered, but each Q:/A: should be on its own separate line next time.');
       const questions = [];
       let current = null;
-      while (i < lines.length && !isTagLine(lines[i])) {
-        const qLine = lines[i].trim(); i++;
-        if (!qLine) continue;
+      quizLines.forEach((rawLine) => {
+        const qLine = rawLine.trim();
+        if (!qLine) return;
         const qMatch = qLine.match(/^Q:\s*(.+)$/i);
         const aMatch = qLine.match(/^A:\s*(.+)$/i);
         if (qMatch) {
@@ -1534,7 +1615,7 @@ function parseBlockTagsFromLines(lines) {
         } else {
           warnings.push('Could not read a quiz line (expected "Q: ..." or "A: ..."): "' + qLine.slice(0, 60) + '"');
         }
-      }
+      });
       if (current) questions.push(current);
       questions.forEach((q) => {
         if (q.options.length !== 4) warnings.push('Question "' + q.text.slice(0, 40) + '" had ' + q.options.length + ' options, not 4 -- padded/trimmed to 4.');
@@ -1549,10 +1630,38 @@ function parseBlockTagsFromLines(lines) {
   return { blocks, warnings };
 }
 
+// Splits a header block's raw text before every place a capitalized
+// "WORD:" appears mid-line -- recovers "TITLE: X CATEGORY: Y" (every
+// field crammed onto one line, a real and easy mistake) into separate
+// "TITLE: X" / "CATEGORY: Y" lines instead of the whole line getting
+// swallowed as one field's value with the rest silently corrupting it.
+function splitHeaderJamLines(rawText) {
+  const lines = String(rawText || "").split(/\r?\n/);
+  const out = [];
+  let jammed = false;
+  lines.forEach((line) => {
+    const pieces = line.split(/\s+(?=[A-Z][A-Z_]{1,20}:\s)/).map((p) => p.trim()).filter(Boolean);
+    if (pieces.length > 1) jammed = true;
+    if (pieces.length) out.push(...pieces); else out.push(line);
+  });
+  return { lines: out, jammed };
+}
+
 function parseLessonCommandText(text) {
-  const lines = String(text || "").split(/\r?\n/);
+  const rawLines = String(text || "").split(/\r?\n/);
+  // Only the header portion (everything before the first [TAG] line) is
+  // safe to run the jam-splitter on -- applying it to the whole
+  // document risked mangling body text that happens to contain an
+  // ALL-CAPS word followed by a colon, which is rare but not
+  // impossible in real lesson content.
+  const firstTagIndex = rawLines.findIndex((l) => l.trim().startsWith("["));
+  const headerRaw = (firstTagIndex === -1 ? rawLines : rawLines.slice(0, firstTagIndex)).join("\n");
+  const bodyRaw = firstTagIndex === -1 ? [] : rawLines.slice(firstTagIndex);
+  const { lines: headerLines, jammed: headerJammed } = splitHeaderJamLines(headerRaw);
+  const lines = headerLines.concat(bodyRaw);
   const meta = { title: "", category: LESSON_CATEGORIES[0], difficulty: LESSON_DIFFICULTIES[0], estimatedMinutes: 5, xpReward: 25 };
   const warnings = [];
+  if (headerJammed) warnings.push('Header fields were found crammed onto one line (like "TITLE: X CATEGORY: Y") and were recovered, but each field should be on its own line next time.');
   let i = 0;
 
   while (i < lines.length) {
@@ -1769,7 +1878,7 @@ const ACTIVITY_SYNTAX_GUIDE =
 
 Header (TITLE and TYPE required, the rest optional):
 TITLE: the activity's title
-TYPE: one of quiz, match, fill, memoryFlip, wordScramble, speedRound, picturePop, oddOneOut, sentenceOrder, listenType, categorize
+TYPE: one of lesson, quiz, match, fill, memoryFlip, wordScramble, speedRound, picturePop, oddOneOut, sentenceOrder, listenType, categorize
 LEVEL: the exact title of an existing level to attach this to (optional)
 XP: a number, how much EXP completing it awards
 SECONDS: only for TYPE: speedRound — the time limit in seconds
@@ -1826,7 +1935,36 @@ ITEM: a word = A
 ITEM: another word = B
   "A" and "B" refer to CATEGORY_A and CATEGORY_B from the header.
 
-Write the whole activity now using only this format, nothing else around it.`;
+Write the whole activity now using only this format, nothing else around it.
+
+For TYPE: lesson specifically, the body uses [HEADING]/[TEXT]/[TIP]/[WARNING]/
+[DIVIDER]/[ACCORDION]/[QUIZ] tags -- the same mistakes that break a standalone
+lesson break this too. Avoid all of these:
+
+WRONG (header fields on one line): TITLE: X TYPE: lesson LEVEL: Y
+RIGHT (each field on its own line):
+TITLE: X
+TYPE: lesson
+LEVEL: Y
+
+WRONG (using * as a bullet point inside [TEXT]/[TIP]/[WARNING] -- * is
+reserved for **bold** and *italic*, a list written this way won't render
+as a list at all):
+[TEXT]
+* Sofa = a long chair
+RIGHT (write normal sentences, or use [ACCORDION] for a term/meaning list):
+[ACCORDION]
+- Sofa: a long chair
+
+WRONG (an entire question and its answers on one line):
+[QUIZ] Q: Which is red? A: Apple * A: Banana A: Grape A: Lemon
+RIGHT (every Q: and every A: is its own line):
+[QUIZ]
+Q: Which is red?
+A: Apple *
+A: Banana
+A: Grape
+A: Lemon`;
 
 const ACTIVITY_EXAMPLE_TEXT = {
   lesson: `TITLE: Greetings\nTYPE: lesson\nLEVEL: Everyday Words\nXP: 25\n\n[HEADING] Saying Hello\n[TEXT]\nIn English, "hello" and "hi" are the two most common greetings. "Hi" is a little more casual than "hello".\n\n[TIP]\nTry greeting someone new every day, even just in your head, to build the habit.\n\n[QUIZ]\nQ: Which greeting is more casual?\nA: Hello\nA: Hi *\nA: Good morning\nA: Good evening`,
@@ -1844,10 +1982,18 @@ const ACTIVITY_EXAMPLE_TEXT = {
 };
 
 function parseActivityCommandText(text) {
-  const lines = String(text || "").split(/\r?\n/);
+  const rawLines = String(text || "").split(/\r?\n/);
+  // Same header/body split as the lesson parser, but this format's
+  // header ends at the first BLANK line rather than a [TAG] line.
+  const firstBlankIndex = rawLines.findIndex((l) => !l.trim());
+  const headerRaw = (firstBlankIndex === -1 ? rawLines : rawLines.slice(0, firstBlankIndex)).join("\n");
+  const bodyRaw = firstBlankIndex === -1 ? [] : rawLines.slice(firstBlankIndex);
+  const { lines: headerLines, jammed: headerJammed } = splitHeaderJamLines(headerRaw);
+  const lines = headerLines.concat(bodyRaw);
   const meta = { title: "", type: "", level: "", xp: 15, seconds: 30, categoryA: "Category A", categoryB: "Category B" };
   const bodyLines = [];
   const warnings = [];
+  if (headerJammed) warnings.push('Header fields were found crammed onto one line (like "TITLE: X TYPE: Y") and were recovered, but each field should be on its own line next time.');
   let inBody = false;
 
   lines.forEach((line) => {
@@ -2093,6 +2239,152 @@ function initActivityCommandPanel() {
   };
 }
 
+
+/* ---------------------------------------------------------
+   Benefits Shop admin: add/edit/delete items, and see + fulfil
+   redemption requests with the learner's actual contact info.
+   --------------------------------------------------------- */
+let __shopItemsAdminCache = [];
+
+async function loadShopPanel() {
+  await loadShopItemsList();
+  await loadRedemptionsList();
+  document.getElementById("shopItemAddBtn").onclick = async () => {
+    const title = document.getElementById("shopItemTitleInput").value.trim();
+    const desc = document.getElementById("shopItemDescInput").value.trim();
+    const cost = parseInt(document.getElementById("shopItemCostInput").value, 10) || 1;
+    const icon = document.getElementById("shopItemIconInput").value.trim() || "🎁";
+    if (!title) { showToast("Give the item a title first."); return; }
+    const btn = document.getElementById("shopItemAddBtn");
+    btn.disabled = true;
+    try {
+      const snap = await db.collection("shopItems").get();
+      let maxOrder = 0;
+      snap.forEach((d) => { maxOrder = Math.max(maxOrder, d.data().order || 0); });
+      await db.collection("shopItems").add({
+        title, description: desc, cost, icon, order: maxOrder + 1, published: true,
+      });
+      document.getElementById("shopItemTitleInput").value = "";
+      document.getElementById("shopItemDescInput").value = "";
+      document.getElementById("shopItemCostInput").value = "20";
+      document.getElementById("shopItemIconInput").value = "";
+      showToast("Item added.");
+      await loadShopItemsList();
+    } catch (err) {
+      showToast(describeFirebaseError(err));
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
+
+async function loadShopItemsList() {
+  const host = document.getElementById("shopItemsListHost");
+  try {
+    const snap = await db.collection("shopItems").get();
+    __shopItemsAdminCache = [];
+    snap.forEach((d) => __shopItemsAdminCache.push({ id: d.id, ...d.data() }));
+    __shopItemsAdminCache.sort((a, b) => (a.order || 0) - (b.order || 0));
+  } catch (err) {
+    host.innerHTML = "";
+    renderAlert(host, describeFirebaseError(err), { onRetry: loadShopItemsList });
+    return;
+  }
+  if (!__shopItemsAdminCache.length) {
+    host.innerHTML = '<div class="empty-state"><h3>No shop items yet</h3><p>Add one above.</p></div>';
+    return;
+  }
+  host.innerHTML = __shopItemsAdminCache.map((item, i) =>
+    '<div class="card" data-item-id="' + item.id + '">' +
+    '<div class="card-row">' +
+    '<div><h3 style="margin-bottom:2px;">' + escapeHtml(item.icon || "🎁") + " " + escapeHtml(item.title) +
+    ' <span class="badge ' + (item.published !== false ? "badge-published" : "badge-draft") + '">' + (item.published !== false ? "Published" : "Draft") + '</span></h3>' +
+    '<p style="color:var(--ink-soft); margin:0;">' + escapeHtml(item.description || "") + ' · ' + item.cost + ' JP</p></div>' +
+    '<div style="display:flex; gap:8px; flex-wrap:wrap;">' +
+    (i > 0 ? '<button class="btn btn-ghost btn-sm" data-move-shop-up="' + item.id + '">↑</button>' : "") +
+    (i < __shopItemsAdminCache.length - 1 ? '<button class="btn btn-ghost btn-sm" data-move-shop-down="' + item.id + '">↓</button>' : "") +
+    '<button class="btn btn-secondary btn-sm" data-toggle-shop-pub="' + item.id + '">' + (item.published !== false ? "Unpublish" : "Publish") + '</button>' +
+    '<button class="btn btn-danger btn-sm" data-delete-shop="' + item.id + '">Delete</button>' +
+    '</div></div></div>'
+  ).join("");
+
+  host.querySelectorAll("[data-delete-shop]").forEach((btn) => btn.addEventListener("click", async () => {
+    if (!confirm("Delete this shop item? This can't be undone.")) return;
+    await db.collection("shopItems").doc(btn.getAttribute("data-delete-shop")).delete();
+    showToast("Item removed.");
+    loadShopItemsList();
+  }));
+  host.querySelectorAll("[data-toggle-shop-pub]").forEach((btn) => btn.addEventListener("click", async () => {
+    const id = btn.getAttribute("data-toggle-shop-pub");
+    const item = __shopItemsAdminCache.find((it) => it.id === id);
+    await db.collection("shopItems").doc(id).update({ published: !(item.published !== false) });
+    loadShopItemsList();
+  }));
+  host.querySelectorAll("[data-move-shop-up]").forEach((btn) => btn.addEventListener("click", async () => {
+    const id = btn.getAttribute("data-move-shop-up");
+    const i = __shopItemsAdminCache.findIndex((it) => it.id === id);
+    if (i <= 0) return;
+    const a = __shopItemsAdminCache[i], b = __shopItemsAdminCache[i - 1];
+    await Promise.all([
+      db.collection("shopItems").doc(a.id).update({ order: b.order || 0 }),
+      db.collection("shopItems").doc(b.id).update({ order: a.order || 0 }),
+    ]);
+    loadShopItemsList();
+  }));
+  host.querySelectorAll("[data-move-shop-down]").forEach((btn) => btn.addEventListener("click", async () => {
+    const id = btn.getAttribute("data-move-shop-down");
+    const i = __shopItemsAdminCache.findIndex((it) => it.id === id);
+    if (i === -1 || i >= __shopItemsAdminCache.length - 1) return;
+    const a = __shopItemsAdminCache[i], b = __shopItemsAdminCache[i + 1];
+    await Promise.all([
+      db.collection("shopItems").doc(a.id).update({ order: b.order || 0 }),
+      db.collection("shopItems").doc(b.id).update({ order: a.order || 0 }),
+    ]);
+    loadShopItemsList();
+  }));
+}
+
+async function loadRedemptionsList() {
+  const host = document.getElementById("redemptionsListHost");
+  let redemptions = [];
+  try {
+    const snap = await db.collection("redemptions").get();
+    snap.forEach((d) => redemptions.push({ id: d.id, ...d.data() }));
+  } catch (err) {
+    host.innerHTML = "";
+    renderAlert(host, describeFirebaseError(err), { onRetry: loadRedemptionsList });
+    return;
+  }
+  redemptions.sort((a, b) => {
+    const at = a.redeemedAt && a.redeemedAt.toMillis ? a.redeemedAt.toMillis() : 0;
+    const bt = b.redeemedAt && b.redeemedAt.toMillis ? b.redeemedAt.toMillis() : 0;
+    return bt - at; // newest first
+  });
+  if (!redemptions.length) {
+    host.innerHTML = '<div class="empty-state"><h3>No redemptions yet</h3></div>';
+    return;
+  }
+  host.innerHTML = redemptions.map((r) => {
+    const when = r.redeemedAt && r.redeemedAt.toDate ? r.redeemedAt.toDate().toLocaleString() : "";
+    const contactParts = [];
+    if (r.contactEmail) contactParts.push("✉️ " + escapeHtml(r.contactEmail));
+    if (r.contactWhatsapp) contactParts.push("📱 " + escapeHtml(r.contactWhatsapp));
+    const contactHtml = contactParts.length ? contactParts.join(" &nbsp;·&nbsp; ") : '<span style="color:var(--danger,#a8412f);">No contact info on file</span>';
+    return '<div class="card">' +
+      '<div class="card-row">' +
+      '<div><h3 style="margin-bottom:2px;">' + escapeHtml(r.itemTitle) +
+      ' <span class="badge ' + (r.fulfilled ? "badge-published" : "badge-draft") + '">' + (r.fulfilled ? "Fulfilled" : "Pending") + '</span></h3>' +
+      '<p style="color:var(--ink-soft); margin:0 0 4px;">' + escapeHtml(r.username || "unknown learner") + " · " + r.cost + " JP · " + escapeHtml(when) + '</p>' +
+      '<p style="margin:0;">' + contactHtml + '</p></div>' +
+      (r.fulfilled ? "" : '<button class="btn btn-solid btn-sm" data-fulfill-redemption="' + r.id + '">Mark fulfilled</button>') +
+      '</div></div>';
+  }).join("");
+
+  host.querySelectorAll("[data-fulfill-redemption]").forEach((btn) => btn.addEventListener("click", async () => {
+    await db.collection("redemptions").doc(btn.getAttribute("data-fulfill-redemption")).update({ fulfilled: true });
+    loadRedemptionsList();
+  }));
+}
 
 async function openLessonEditor(lesson) {
   const isNew = !lesson;

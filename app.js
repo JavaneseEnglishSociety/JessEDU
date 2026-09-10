@@ -25,17 +25,42 @@ async function translateOneString(text) {
   if (translateCache.has(text)) return translateCache.get(text);
   if (translateInFlight.has(text)) return translateInFlight.get(text);
   const promise = (async () => {
-    try {
+    // Try Google's free endpoint first, then fall back to MyMemory's
+    // free API if that specific one is unreachable -- some networks
+    // block translate.googleapis.com specifically while leaving other
+    // translation services open, so a single point of failure here
+    // meant "the network doesn't like this one endpoint" looked
+    // identical to "translation is broken" from the outside.
+    async function tryGoogle() {
       const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=id&dt=t&q=" + encodeURIComponent(text);
       const res = await fetch(url);
-      if (!res.ok) throw new Error("translate failed: " + res.status);
+      if (!res.ok) throw new Error("Google translate failed: " + res.status);
       const data = await res.json();
       const translated = (data[0] || []).map((chunk) => chunk[0]).join("");
-      const finalText = translated || text;
+      if (!translated) throw new Error("Google translate returned nothing");
+      return translated;
+    }
+    async function tryMyMemory() {
+      const url = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) + "&langpair=en|id";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("MyMemory failed: " + res.status);
+      const data = await res.json();
+      const translated = data && data.responseData && data.responseData.translatedText;
+      if (!translated) throw new Error("MyMemory returned nothing");
+      return translated;
+    }
+    try {
+      let finalText;
+      try {
+        finalText = await tryGoogle();
+      } catch (primaryErr) {
+        console.warn("JessEDU: primary translation endpoint failed, trying the backup.", primaryErr);
+        finalText = await tryMyMemory();
+      }
       translateCache.set(text, finalText);
       return finalText;
     } catch (e) {
-      console.warn("JessEDU: translation failed for one piece of text; leaving it in English.", e);
+      console.warn("JessEDU: both translation endpoints failed for one piece of text; leaving it in English.", e);
       return text;
     } finally {
       translateInFlight.delete(text);
@@ -1056,6 +1081,32 @@ async function fetchPublishedShopItems() {
   return items;
 }
 
+function promptForContactInfo(current) {
+  return new Promise((resolve) => {
+    openModal(
+      '<h3 style="margin-bottom:6px;">How can JESS reach you?</h3>' +
+      '<p style="color:var(--ink-soft); margin-bottom:16px;">Staff need a real way to contact you to actually give you this benefit. Fill in at least one.</p>' +
+      '<div class="field"><label>Email</label><input type="email" id="redeemEmailInput" placeholder="you@example.com" value="' +
+        escapeHtml((current && current.contactEmail) || "") + '"></div>' +
+      '<div class="field"><label>WhatsApp number</label><input type="tel" id="redeemWhatsappInput" placeholder="08xxxxxxxxxx" value="' +
+        escapeHtml((current && current.contactWhatsapp) || "") + '"></div>' +
+      '<div id="redeemContactAlert"></div>' +
+      '<button class="btn btn-primary btn-block" id="redeemContactContinueBtn" style="margin-top:8px;">Continue</button>',
+      () => {
+        document.getElementById("redeemContactContinueBtn").addEventListener("click", () => {
+          const email = document.getElementById("redeemEmailInput").value.trim();
+          const whatsapp = document.getElementById("redeemWhatsappInput").value.trim();
+          if (!email && !whatsapp) {
+            renderAlert(document.getElementById("redeemContactAlert"), "Enter at least an email or a WhatsApp number.");
+            return;
+          }
+          resolve({ email, whatsapp });
+        });
+      }
+    );
+  });
+}
+
 async function redeemShopItem(item) {
   if (!auth.currentUser) {
     showToast("Create a free account to save up and spend JESS Points.", "info");
@@ -1065,6 +1116,9 @@ async function redeemShopItem(item) {
   const profileRef = db.collection("users").doc(uid);
   const redemptionRef = db.collection("redemptions").doc();
   try {
+    const profileSnapForPrompt = await profileRef.get();
+    const contact = await promptForContactInfo(profileSnapForPrompt.exists ? profileSnapForPrompt.data() : null);
+    closeModal();
     await db.runTransaction(async (tx) => {
       const profileSnap = await tx.get(profileRef);
       if (!profileSnap.exists) throw new Error("This account has no learner profile yet.");
@@ -1072,10 +1126,20 @@ async function redeemShopItem(item) {
       if ((current.jessPoints || 0) < item.cost) {
         throw Object.assign(new Error("Not enough JESS Points yet."), { code: "insufficient-points" });
       }
-      tx.update(profileRef, { jessPoints: current.jessPoints - item.cost });
+      // Contact info is saved both on the profile (so it's pre-filled
+      // next time) and on the redemption record itself (a snapshot of
+      // what was actually given at the moment of redemption, so it
+      // doesn't silently change if the learner edits their profile later).
+      tx.update(profileRef, {
+        jessPoints: current.jessPoints - item.cost,
+        contactEmail: contact.email || current.contactEmail || "",
+        contactWhatsapp: contact.whatsapp || current.contactWhatsapp || "",
+      });
       tx.set(redemptionRef, {
         userId: uid,
         username: current.username || current.displayName || "",
+        contactEmail: contact.email || "",
+        contactWhatsapp: contact.whatsapp || "",
         itemId: item.id,
         itemTitle: item.title,
         cost: item.cost,
@@ -2865,3 +2929,4 @@ async function checkPreviewParams() {
     if (previewActivityId || previewLessonId) showToast("Couldn't load preview: " + describeFirebaseError(err), "error");
   }
 }
+

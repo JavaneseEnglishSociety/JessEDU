@@ -59,6 +59,7 @@
         <button class="rail-tab" data-admin-panel="commands">⌨️ Command Panel</button>
         <button class="rail-tab" data-admin-panel="placement">📍 Placement quiz</button>
         <button class="rail-tab" data-admin-panel="media">🗂️ Media Library</button>
+        <button class="rail-tab" data-admin-panel="shop">🎁 Benefits Shop</button>
       </nav>
       <div class="rail-right">
         <button class="rail-tab" id="adminLogoutBtn">🚪 Log out</button>
@@ -268,6 +269,28 @@
         </div>
         <div class="media-cat-tabs" id="adminMediaCatTabs"></div>
         <div id="adminMediaGridHost"></div>
+      </section>
+
+      <section id="adminPanelShop" hidden>
+        <div class="area-head"><div><p class="folio">Benefits Shop</p><h2 style="margin:0;">Manage what points can buy</h2></div></div>
+        <div class="card" style="margin-bottom:20px;">
+          <h3 style="margin-bottom:6px;">Add a shop item</h3>
+          <p style="color:var(--ink-soft); font-size:0.85rem; margin-bottom:14px;">
+            Redeeming deducts points and gives staff the learner's contact info — it doesn't do anything
+            automatically beyond that. Meant for real benefits (extra break time, a certificate, first pick of
+            something) that your team follows up on in person or via chat.
+          </p>
+          <div class="field"><label>Title</label><input type="text" id="shopItemTitleInput" placeholder="15 minutes extra break"></div>
+          <div class="field"><label>Description</label><input type="text" id="shopItemDescInput" placeholder="Redeemable during your next session"></div>
+          <div class="field"><label>Cost (JESS Points)</label><input type="number" id="shopItemCostInput" min="1" value="20"></div>
+          <div class="field"><label>Icon (emoji)</label><input type="text" id="shopItemIconInput" placeholder="🎁"></div>
+          <button class="btn btn-solid" id="shopItemAddBtn">Add item</button>
+        </div>
+        <div id="shopItemsListHost"></div>
+
+        <h3 style="font-size:1.05rem; margin:28px 0 4px;">Redemption requests</h3>
+        <p style="color:var(--ink-2); font-size:0.85rem; margin-bottom:14px;">Contact the learner using the info shown, then mark it fulfilled once you've actually given them the benefit.</p>
+        <div id="redemptionsListHost"></div>
       </section>
     </main>
   </div>
