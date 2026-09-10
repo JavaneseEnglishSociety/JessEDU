@@ -607,6 +607,34 @@ const ACTIVITY_TYPE_META = {
 const DEFAULT_XP_BY_TYPE = { quiz: 20, match: 15, fill: 15, lesson: 25, flashcards: 15, listening: 25, reading: 25, sentenceBuilder: 20, memoryFlip: 20, wordScramble: 15, speedRound: 25, picturePop: 15, oddOneOut: 15, sentenceOrder: 20, listenType: 20, categorize: 15 };
 
 
+// Draws a thin connecting line through the center of each activity
+// bubble, in order, using their actual on-screen positions -- computed
+// after layout rather than guessed at with CSS, since the winding
+// left-right offset means no two consecutive nodes sit at a predictable
+// fixed distance apart. An SVG overlay sits behind the buttons
+// (pointer-events disabled) so clicking still works exactly as before.
+function drawActivityPathLines(pathWrap) {
+  const nodes = pathWrap.querySelectorAll(".activity-node");
+  if (nodes.length < 2) return;
+  const wrapRect = pathWrap.getBoundingClientRect();
+  const points = Array.from(nodes).map((n) => {
+    const r = n.getBoundingClientRect();
+    return { x: r.left + r.width / 2 - wrapRect.left, y: r.top + r.height / 2 - wrapRect.top };
+  });
+  const existing = pathWrap.querySelector(".activity-path-lines");
+  if (existing) existing.remove();
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "activity-path-lines");
+  svg.setAttribute("width", wrapRect.width);
+  svg.setAttribute("height", wrapRect.height);
+  const d = points.map((p, i) => (i === 0 ? "M" : "L") + p.x.toFixed(1) + " " + p.y.toFixed(1)).join(" ");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", d);
+  path.setAttribute("class", "activity-path-line-stroke");
+  svg.appendChild(path);
+  pathWrap.insertBefore(svg, pathWrap.firstChild);
+}
+
 function renderLevelPath() {
   const host = document.getElementById("levelPathHost");
   host.innerHTML = "";
@@ -693,6 +721,13 @@ function renderLevelPath() {
         pathWrap.appendChild(row);
       });
       card.appendChild(pathWrap);
+      // The connecting line has to be computed from each node's REAL
+      // rendered position, not just drawn with CSS -- the rows sit at
+      // different horizontal offsets (the winding effect), so a plain
+      // straight vertical line would visibly miss every bubble except
+      // the ones directly below each other. Runs after the browser has
+      // actually laid the nodes out.
+      requestAnimationFrame(() => drawActivityPathLines(pathWrap));
     } else if (state !== "locked") {
       const p = document.createElement("p");
       p.style.marginTop = "8px";

@@ -636,32 +636,51 @@ table.data-table td{ padding:11px 12px; border-bottom:1px solid var(--rule); fon
    distinct from the level list above it (cards in a gentler winding
    list) and the standalone Library (a plain grid). Circular icon nodes,
    alternating left-right, one glowing "current" bubble at a time. */
-.activity-path{ display:flex; flex-direction:column; gap:6px; margin-top:14px; padding-left:4px; }
-.activity-path-row{ display:flex; align-items:center; gap:14px; }
+.activity-path{ position: relative; display:flex; flex-direction:column; gap:26px; margin-top:18px; padding:6px 4px; }
+.activity-path-row{ position: relative; z-index: 1; display:flex; align-items:center; gap:16px; }
 .activity-path-row:nth-child(5n+1){ margin-left: 0; }
 .activity-path-row:nth-child(5n+2){ margin-left: 34px; }
 .activity-path-row:nth-child(5n+3){ margin-left: 14px; }
 .activity-path-row:nth-child(5n+4){ margin-left: 44px; }
 .activity-path-row:nth-child(5n+5){ margin-left: 6px; }
 
+/* The thin connecting line, drawn behind the bubbles from each node's
+   real computed center (see drawActivityPathLines in app.js) -- a
+   plain CSS line can't do this correctly since consecutive nodes sit
+   at different horizontal offsets. */
+.activity-path-lines{ position: absolute; top: 0; left: 0; z-index: 0; pointer-events: none; overflow: visible; }
+.activity-path-line-stroke{
+  fill: none; stroke: var(--rule-dark); stroke-width: 3;
+  stroke-linecap: round; stroke-dasharray: 1 14;
+}
+
 .activity-node{
   --node-color: var(--brass);
-  flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%;
+  flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.4rem; line-height: 1; cursor: pointer;
-  background: var(--node-color); color: #fff;
-  border: none; box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black);
+  font-size: 1.5rem; line-height: 1; cursor: pointer;
+  background: var(--paper); color: var(--node-color);
+  border: 2.5px solid var(--node-color);
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black);
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 .activity-node:hover{ transform: translateY(-2px); }
 .activity-node:active{ transform: translateY(2px); box-shadow: 0 1px 0 color-mix(in srgb, var(--node-color) 70%, black); }
 
+/* "Unlocked" (done, and the current one about to be tapped) reads
+   distinctly filled-in and solid -- clearly a live, tappable step on
+   the path rather than an outline waiting to be earned. */
 .activity-node.done{
-  background: var(--green); box-shadow: 0 4px 0 #1f6b46;
+  background: var(--green); border-color: var(--green); color: #fff;
+  box-shadow: 0 4px 0 #1f6b46;
+}
+.activity-node.current{
+  background: var(--node-color); color: #fff;
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black);
 }
 .activity-node.locked{
-  background: var(--paper-2); color: var(--ink-3); cursor: pointer;
-  box-shadow: 0 4px 0 var(--rule-dark); font-size: 1.1rem;
+  background: var(--paper-2); color: var(--ink-3); border-color: var(--rule-dark);
+  cursor: pointer; box-shadow: 0 4px 0 var(--rule-dark); font-size: 1.15rem;
 }
 .activity-node.locked:hover{ transform: none; }
 
@@ -673,9 +692,9 @@ table.data-table td{ padding:11px 12px; border-bottom:1px solid var(--rule); fon
 }
 @keyframes activity-node-pulse{
   0%, 100% { box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black), 0 0 0 0 color-mix(in srgb, var(--node-color) 45%, transparent); }
-  50% { box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black), 0 0 0 8px color-mix(in srgb, var(--node-color) 0%, transparent); }
+  50% { box-shadow: 0 4px 0 color-mix(in srgb, var(--node-color) 70%, black), 0 0 0 9px color-mix(in srgb, var(--node-color) 0%, transparent); }
 }
 
-.activity-node-label{ font-size: 0.92rem; color: var(--ink-2); }
+.activity-node-label{ font-size: 0.95rem; font-weight: 600; color: var(--ink); }
 .activity-node.locked ~ .activity-node-label,
-.activity-path-row:has(.activity-node.locked) .activity-node-label{ color: var(--ink-3); }
+.activity-path-row:has(.activity-node.locked) .activity-node-label{ color: var(--ink-3); font-weight: 500; }
