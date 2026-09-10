@@ -880,45 +880,31 @@ function renderLessonGrid() {
   );
   if (!items.length) { host.innerHTML = '<div class="empty-state"><h3>No lessons found</h3></div>'; return; }
 
-  // Locking is checked against the FULL published order (__allLessonsCache),
-  // never the filtered/searched `items` list -- otherwise searching or
-  // filtering down to one category would silently change what "the
-  // previous lesson" means. A lesson's number badge still reflects its
-  // position within whatever's currently visible, but whether it's
-  // locked always reflects its true place in the whole sequence.
-  function isLessonLocked(lesson) {
-    const globalIndex = __allLessonsCache.findIndex((l) => l.id === lesson.id);
-    if (globalIndex <= 0) return false;
-    const prev = __allLessonsCache[globalIndex - 1];
-    return !completed[prev.id];
-  }
+  // The standalone Library is meant to be freely browsable -- every
+  // published lesson is open regardless of order, since it's a
+  // free-browse reference, not a guided path. Only the level path
+  // (levels themselves, and activities/lesson-type-activities within
+  // one level, including "lesson" type ones created via the Command
+  // Panel) enforces sequential unlocking -- that logic lives in
+  // renderLevelPath and is untouched by this.
 
   // Same winding, top-to-bottom path language as the level path, rather
   // than a plain multi-column grid -- browsing/searching still works
   // exactly as before (this is a layout change only), each lesson just
   // reads as one stop along a path instead of a tile in a grid.
-  host.innerHTML = '<div class="lesson-path">' + items.map((l, i) => {
-    const locked = isLessonLocked(l);
-    return '<div class="lesson-path-row">' +
-    '<div class="lesson-path-node' + (completed[l.id] ? ' complete' : locked ? ' locked' : '') + '">' + (completed[l.id] ? '✓' : locked ? '🔒' : (i + 1)) + '</div>' +
-    '<div class="lesson-card' + (locked ? ' locked' : '') + '" data-open-lesson="' + l.id + '" data-locked="' + locked + '">' +
+  host.innerHTML = '<div class="lesson-path">' + items.map((l, i) =>
+    '<div class="lesson-path-row">' +
+    '<div class="lesson-path-node' + (completed[l.id] ? ' complete' : '') + '">' + (completed[l.id] ? '✓' : (i + 1)) + '</div>' +
+    '<div class="lesson-card" data-open-lesson="' + l.id + '">' +
     '<div class="lesson-card-tags"><span class="lesson-tag">' + escapeHtml(l.category || "") + '</span>' +
     '<span class="lesson-tag diff-' + escapeHtml(l.difficulty || "") + '">' + escapeHtml(l.difficulty || "") + '</span></div>' +
     '<h4>' + escapeHtml(l.title) + (completed[l.id] ? ' <span class="lesson-done-badge">✓</span>' : '') + '</h4>' +
-    (locked
-      ? '<div class="lesson-meta">🔒 Complete the previous lesson first</div>'
-      : '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div>') +
-    '</div></div>';
-  }).join("") + '</div>';
+    '<div class="lesson-meta">⏱️ ' + (l.estimatedMinutes || 1) + ' minute lesson</div>' +
+    '</div></div>'
+  ).join("") + '</div>';
 
   host.querySelectorAll("[data-open-lesson]").forEach(card => card.addEventListener("click", () => {
     const lesson = items.find(l => l.id === card.getAttribute("data-open-lesson"));
-    if (card.getAttribute("data-locked") === "true") {
-      const globalIndex = __allLessonsCache.findIndex((l) => l.id === lesson.id);
-      const prevTitle = globalIndex > 0 ? __allLessonsCache[globalIndex - 1].title : "the previous lesson";
-      showToast("Complete \"" + prevTitle + "\" first to unlock this lesson.", "info");
-      return;
-    }
     openLessonViewer(lesson);
   }));
 }
