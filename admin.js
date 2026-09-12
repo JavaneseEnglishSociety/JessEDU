@@ -1602,7 +1602,15 @@ function parseBlockTagsFromLines(lines) {
         const qLine = rawLine.trim();
         if (!qLine) return;
         const qMatch = qLine.match(/^Q:\s*(.+)$/i);
-        const aMatch = qLine.match(/^A:\s*(.+)$/i);
+        // Accepts ANY single-letter option marker (A:/B:/C:/D:), not
+        // just literal "A:" repeated. An AI writing many questions in
+        // one long document tends to drift into standard multiple-
+        // choice lettering (A/B/C/D) even when told to always use "A:"
+        // -- previously every B:/C:/D: line was silently dropped as
+        // unrecognized, which could delete the actual correct answer
+        // (marked with *) if it wasn't the first option, leaving the
+        // question with only 1 real option and 3 blanks.
+        const aMatch = qLine.match(/^[A-Za-z]:\s*(.+)$/);
         if (qMatch) {
           if (current) questions.push(current);
           current = { text: qMatch[1].trim(), options: [], correctIndex: 0 };
@@ -2040,7 +2048,7 @@ function parseActivityCommandText(text) {
     const questions = [];
     let current = null;
     bodyLinesTrimmed.forEach((l) => {
-      const q = l.match(/^Q:\s*(.+)$/i), a = l.match(/^A:\s*(.+)$/i);
+      const q = l.match(/^Q:\s*(.+)$/i), a = l.match(/^[A-Za-z]:\s*(.+)$/);
       if (q) { if (current) questions.push(current); current = { text: q[1].trim(), options: [], correctIndex: 0 }; }
       else if (a && current) {
         let opt = a[1].trim();
