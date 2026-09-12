@@ -177,6 +177,7 @@
           <button class="btn btn-secondary btn-sm cmd-subtab active" data-cmd-subtab="lessons">Lessons</button>
           <button class="btn btn-secondary btn-sm cmd-subtab" data-cmd-subtab="levels">Levels</button>
           <button class="btn btn-secondary btn-sm cmd-subtab" data-cmd-subtab="activities">Activities</button>
+          <button class="btn btn-secondary btn-sm cmd-subtab" data-cmd-subtab="bulk">Bulk</button>
         </div>
 
         <div id="cmdSubpanelLessons">
@@ -231,6 +232,30 @@
           </div>
           <div id="activityCommandParseAlert" style="margin-top:14px;"></div>
           <div id="activityCommandPreviewHost" style="margin-top:20px;"></div>
+        </div>
+
+        <div id="cmdSubpanelBulk" hidden>
+          <div class="alert alert-info" style="margin-bottom:18px;">
+            Paste many levels, lessons, and activities at once, each wrapped in its own <code>===LEVEL===</code>,
+            <code>===LESSON===</code>, or <code>===ACTIVITY===</code> marker — everything below a marker uses
+            the exact same format as that item's own tab. Levels in the paste are created first, so an
+            activity can reference a level defined earlier in the SAME paste, not just an existing one.
+            Each item still becomes its own separate document — this only saves the copy-pasting.
+          </div>
+          <div class="card-row" style="margin-bottom:14px; align-items:center;">
+            <button class="btn btn-secondary btn-sm" id="copyBulkSyntaxBtn">Copy the syntax guide</button>
+            <button class="btn btn-secondary btn-sm" id="loadBulkExampleBtn">Load an example</button>
+            <label style="display:flex; align-items:center; gap:6px; font-size:0.88rem; margin-left:auto;">
+              <input type="checkbox" id="bulkAutoPublishCheck" style="width:auto;">
+              Publish everything immediately (skip the draft review step)
+            </label>
+          </div>
+          <textarea id="bulkCommandInputArea" rows="18" style="width:100%; font-family:monospace; font-size:0.86rem; padding:14px; border:1px solid var(--rule-dark); border-radius:var(--r); background:var(--sheet);" placeholder="===LEVEL===&#10;TITLE: Everyday Words&#10;DESCRIPTION: Learn common words used every day.&#10;ORDER: 2&#10;&#10;===ACTIVITY===&#10;TITLE: Fruit Quiz&#10;TYPE: quiz&#10;LEVEL: Everyday Words&#10;XP: 20&#10;&#10;Q: Which one is red?&#10;A: Apple *&#10;A: Banana&#10;A: Grape&#10;A: Lemon"></textarea>
+          <div style="display:flex; gap:10px; margin-top:14px;">
+            <button class="btn btn-solid" id="parseBulkCommandBtn">Parse and preview</button>
+          </div>
+          <div id="bulkCommandParseAlert" style="margin-top:14px;"></div>
+          <div id="bulkCommandPreviewHost" style="margin-top:20px;"></div>
         </div>
       </section>
 

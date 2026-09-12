@@ -1721,8 +1721,10 @@ function initCommandPanel() {
       document.getElementById("cmdSubpanelLessons").hidden = which !== "lessons";
       document.getElementById("cmdSubpanelLevels").hidden = which !== "levels";
       document.getElementById("cmdSubpanelActivities").hidden = which !== "activities";
+      document.getElementById("cmdSubpanelBulk").hidden = which !== "bulk";
       if (which === "levels") initLevelCommandPanel();
       if (which === "activities") initActivityCommandPanel();
+      if (which === "bulk") initBulkCommandPanel();
     });
   });
   document.getElementById("copyCommandSyntaxBtn").onclick = () => {
@@ -2234,6 +2236,254 @@ function initActivityCommandPanel() {
       } catch (err) {
         showToast(describeFirebaseError(err));
         btn.disabled = false; btn.textContent = "Create this activity (as a draft)";
+      }
+    });
+  };
+}
+
+/* ---------------------------------------------------------
+   Bulk command panel: many levels/lessons/activities pasted as one
+   block, each wrapped in its own ===LEVEL===, ===LESSON===, or
+   ===ACTIVITY=== marker. Dispatches each chunk to the SAME parsers
+   already used by the individual tabs (parseLevelCommandText,
+   parseLessonCommandText, parseActivityCommandText) -- this never
+   duplicates that parsing logic, only splits the input and routes it.
+   --------------------------------------------------------- */
+const BULK_SYNTAX_GUIDE =
+`Write MULTIPLE JessEDU items (levels, lessons, and/or activities) in one document. Wrap each item in its own marker line, then use the EXACT SAME format that item type already uses on its own:
+
+===LEVEL===
+(the same format as a single level -- TITLE:, DESCRIPTION:, ORDER:)
+
+===LESSON===
+(the same format as a single standalone lesson -- TITLE:, CATEGORY:, DIFFICULTY:, MINUTES:, EXP:, then [HEADING]/[TEXT]/etc blocks)
+
+===ACTIVITY===
+(the same format as a single activity -- TITLE:, TYPE:, LEVEL:, XP:, then the body for that TYPE)
+
+Rules:
+- Each marker line is exactly "===LEVEL===", "===LESSON===", or "===ACTIVITY===" on its own line, nothing else on that line.
+- Put as many items as needed, in any order, each with its own marker.
+- If an ACTIVITY's LEVEL: names a level that ALSO appears earlier in this same document under ===LEVEL===, it will correctly attach to that newly created level, not just an existing one -- so levels should generally come before the activities that belong to them, though the exact order among different items doesn't otherwise matter.
+- Do not nest markers or put content before the first marker.
+
+Write the whole document now using only this format, nothing else around it.`;
+
+const BULK_EXAMPLE_TEXT =
+`===LEVEL===
+TITLE: Everyday Words
+DESCRIPTION: Learn the words you'll use every single day.
+ORDER: 2
+
+===ACTIVITY===
+TITLE: Fruit Quiz
+TYPE: quiz
+LEVEL: Everyday Words
+XP: 20
+
+Q: Which one is red?
+A: Apple *
+A: Banana
+A: Grape
+A: Lemon
+
+===ACTIVITY===
+TITLE: Greetings
+TYPE: lesson
+LEVEL: Everyday Words
+XP: 25
+
+[HEADING] Saying Hello
+[TEXT]
+In English, "hello" and "hi" are the two most common greetings.
+
+[QUIZ]
+Q: Which greeting is more casual?
+A: Hello
+A: Hi *
+A: Good morning
+A: Good evening
+
+===LESSON===
+TITLE: Colors
+CATEGORY: Vocabulary
+DIFFICULTY: Beginner
+MINUTES: 5
+EXP: 20
+
+[HEADING] Basic Colors
+[TEXT]
+Red, blue, and green are common colors.
+
+[QUIZ]
+Q: Which of these is red?
+A: Banana
+A: Apple *
+A: Sky
+A: Grass`;
+
+function parseBulkCommandText(text) {
+  const raw = String(text || "");
+  const markerRe = /^===\s*(LEVEL|LESSON|ACTIVITY)\s*===\s*$/gim;
+  const matches = [...raw.matchAll(markerRe)];
+  const items = [];
+  const warnings = [];
+
+  if (!matches.length) {
+    warnings.push('No "===LEVEL===", "===LESSON===", or "===ACTIVITY===" markers were found. Every item needs one.');
+    return { items, warnings };
+  }
+  const preamble = raw.slice(0, matches[0].index).trim();
+  if (preamble) warnings.push('Ignored text before the first marker: "' + preamble.slice(0, 60) + '"');
+
+  matches.forEach((m, idx) => {
+    const kind = m[1].toUpperCase();
+    const start = m.index + m[0].length;
+    const end = idx + 1 < matches.length ? matches[idx + 1].index : raw.length;
+    const chunk = raw.slice(start, end).trim();
+    if (!chunk) { warnings.push("An ===" + kind + "=== marker had no content after it, skipped."); return; }
+
+    if (kind === "LEVEL") {
+      const parsed = parseLevelCommandText(chunk);
+      items.push({ kind: "level", meta: parsed.meta, warnings: parsed.warnings });
+    } else if (kind === "LESSON") {
+      const parsed = parseLessonCommandText(chunk);
+      items.push({ kind: "lesson", meta: parsed.meta, blocks: parsed.blocks, warnings: parsed.warnings });
+    } else if (kind === "ACTIVITY") {
+      const parsed = parseActivityCommandText(chunk);
+      items.push({ kind: "activity", meta: parsed.meta, payload: parsed.payload, warnings: parsed.warnings });
+    }
+  });
+
+  return { items, warnings };
+}
+
+function initBulkCommandPanel() {
+  if (document.getElementById("copyBulkSyntaxBtn").dataset.wired) return;
+  document.getElementById("copyBulkSyntaxBtn").dataset.wired = "1";
+
+  document.getElementById("copyBulkSyntaxBtn").onclick = () => {
+    navigator.clipboard.writeText(BULK_SYNTAX_GUIDE).then(
+      () => showToast("Syntax guide copied — paste it into an AI chat."),
+      () => showToast("Couldn't copy automatically. Select and copy the guide manually.")
+    );
+  };
+  document.getElementById("loadBulkExampleBtn").onclick = () => {
+    document.getElementById("bulkCommandInputArea").value = BULK_EXAMPLE_TEXT;
+  };
+
+  document.getElementById("parseBulkCommandBtn").onclick = () => {
+    const raw = document.getElementById("bulkCommandInputArea").value;
+    const result = parseBulkCommandText(raw);
+    const alertHost = document.getElementById("bulkCommandParseAlert");
+    const previewHost = document.getElementById("bulkCommandPreviewHost");
+
+    const itemWarningCount = result.items.reduce((n, it) => n + it.warnings.length, 0);
+    const totalWarnings = result.warnings.length + itemWarningCount;
+    alertHost.innerHTML = totalWarnings
+      ? '<div class="alert alert-error"><strong>' + totalWarnings + ' thing(s) to check across ' + result.items.length + ' item(s):</strong></div>'
+      : '<div class="alert alert-success">Parsed cleanly — ' + result.items.length + ' item(s) found (' +
+        result.items.filter((i) => i.kind === "level").length + " level, " +
+        result.items.filter((i) => i.kind === "lesson").length + " lesson, " +
+        result.items.filter((i) => i.kind === "activity").length + ' activity).</div>';
+
+    if (!result.items.length) { previewHost.innerHTML = ""; return; }
+
+    const KIND_LABEL = { level: "Level", lesson: "Lesson (standalone)", activity: "Activity" };
+    previewHost.innerHTML = result.items.map((it, i) => {
+      const title = it.meta && it.meta.title ? it.meta.title : "(untitled)";
+      const sub = it.kind === "activity" ? (ACTIVITY_TYPE_LABEL[it.meta.type] || it.meta.type || "?") +
+        (it.meta.level ? " · attach to \"" + escapeHtml(it.meta.level) + "\"" : "") : "";
+      const warnHtml = it.warnings.length
+        ? '<ul style="margin:6px 0 0 18px; color:var(--danger,#a8412f); font-size:0.85rem;">' +
+          it.warnings.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul>"
+        : "";
+      return '<div class="card" style="margin-bottom:10px;"><strong>' + (i + 1) + ". " + escapeHtml(KIND_LABEL[it.kind]) + "</strong> — " +
+        escapeHtml(title) + (sub ? " <span style=\"color:var(--ink-soft);\">(" + escapeHtml(sub) + ")</span>" : "") + warnHtml + "</div>";
+    }).join("") +
+      '<button class="btn btn-primary" id="createBulkBtn" style="margin-top:12px;">Create all ' + result.items.length + ' item(s)</button>';
+
+    document.getElementById("createBulkBtn").addEventListener("click", async () => {
+      const btn = document.getElementById("createBulkBtn");
+      btn.disabled = true; btn.textContent = "Creating…";
+      const autoPublish = document.getElementById("bulkAutoPublishCheck").checked;
+      const newlyCreatedLevels = {}; // title.toLowerCase() -> id, for THIS batch specifically
+      let createdCount = 0, failedCount = 0;
+
+      try {
+        // Levels first, always -- so an activity later in the same
+        // paste that references a level ALSO defined in this paste can
+        // actually find it, rather than only ever matching levels that
+        // already existed before this bulk run started.
+        const levelItems = result.items.filter((it) => it.kind === "level");
+        const otherItems = result.items.filter((it) => it.kind !== "level");
+
+        for (const it of levelItems) {
+          try {
+            const snap = await db.collection("levels").get();
+            let maxOrder = 0;
+            snap.forEach((d) => { maxOrder = Math.max(maxOrder, d.data().order || 0); });
+            const doc = await db.collection("levels").add({
+              title: it.meta.title || "Untitled level",
+              description: it.meta.description || "",
+              order: it.meta.order || (maxOrder + 1),
+              published: autoPublish,
+            });
+            newlyCreatedLevels[(it.meta.title || "").toLowerCase().trim()] = doc.id;
+            createdCount++;
+          } catch (err) { failedCount++; console.warn("Bulk: level failed", it, err); }
+        }
+
+        // Levels created just above need to also be resolvable through
+        // the SAME fuzzy match used everywhere else (exact, then
+        // contains-either-way) -- build one combined lookup covering
+        // both this batch and whatever already existed in Firestore.
+        async function resolveLevelId(levelName) {
+          if (!levelName) return "";
+          const wanted = levelName.toLowerCase().trim();
+          if (newlyCreatedLevels[wanted]) return newlyCreatedLevels[wanted];
+          const snap = await db.collection("levels").get();
+          const allLevels = [];
+          snap.forEach((d) => allLevels.push({ id: d.id, title: d.data().title || "" }));
+          let match = allLevels.find((l) => l.title.toLowerCase().trim() === wanted);
+          if (!match) match = allLevels.find((l) => l.title.toLowerCase().includes(wanted) || wanted.includes(l.title.toLowerCase().trim()));
+          return match ? match.id : "";
+        }
+
+        for (const it of otherItems) {
+          try {
+            if (it.kind === "lesson") {
+              const snap = await db.collection("lessons").get();
+              let maxOrder = 0;
+              snap.forEach((d) => { maxOrder = Math.max(maxOrder, d.data().order || 0); });
+              await db.collection("lessons").add({
+                title: it.meta.title || "Untitled lesson",
+                category: it.meta.category, difficulty: it.meta.difficulty,
+                estimatedMinutes: it.meta.estimatedMinutes, xpReward: it.meta.xpReward,
+                blocks: it.blocks, levelId: "", order: maxOrder + 1, published: autoPublish,
+              });
+            } else if (it.kind === "activity") {
+              if (!it.payload) { failedCount++; continue; }
+              const levelId = await resolveLevelId(it.meta.level);
+              const snap = await db.collection("activities").where("levelId", "==", levelId).get();
+              let maxOrder = 0;
+              snap.forEach((d) => { maxOrder = Math.max(maxOrder, d.data().order || 0); });
+              await db.collection("activities").add({
+                title: it.meta.title || "Untitled activity", type: it.meta.type, payload: it.payload,
+                levelId, order: maxOrder + 1, xpReward: it.meta.xp, required: true, published: autoPublish,
+              });
+            }
+            createdCount++;
+          } catch (err) { failedCount++; console.warn("Bulk: item failed", it, err); }
+        }
+
+        showToast(createdCount + " item(s) created" + (autoPublish ? " and published" : " as drafts") + (failedCount ? ", " + failedCount + " failed — check the console" : "") + ".");
+        document.getElementById("bulkCommandInputArea").value = "";
+        previewHost.innerHTML = ""; alertHost.innerHTML = "";
+      } catch (err) {
+        showToast(describeFirebaseError(err));
+      } finally {
+        btn.disabled = false; btn.textContent = "Create all " + result.items.length + " item(s)";
       }
     });
   };
